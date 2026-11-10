@@ -20,8 +20,8 @@ Live source → Mac / Linux: FFmpeg + TV service → Wi-Fi → AI Passport
 ## 1. Get the project
 
 ```sh
-git clone https://github.com/guolifu/ai-passport-tv.git
-cd ai-passport-tv
+git clone https://github.com/habibtalib/ai-passport-tv-en.git
+cd ai-passport-tv-en
 ```
 
 | Path | Purpose |

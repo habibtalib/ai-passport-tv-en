@@ -1,7 +1,7 @@
 {
   "base_commit": "734d759ef30c7020ee19f8a0131fd05aebbfd606",
   "files": {
-    "README.md": "2bdd8f1bc340103580cb951dbf00fe53970fdb78914ec8c560b8f3e29f673015",
+    "README.md": "d00b03bc763034ff4cb90a375820062b7ffd84297cdac057466462c1e3263cf3",
     ".gitignore": "16a9eea42dbc902cf63e0a2ba3b6233ebfeb3cbdb0bce044de059ed53f9ed268",
     "stream.env.example": "174f6d1f260725dc521998da657f7672350a03ae365d199bb307c0dc883a62a7",
     "channels.example.txt": "fa317b37cc658dbce61dd41a02b006c1ee5bd5992263bc82628b181be286864b",
