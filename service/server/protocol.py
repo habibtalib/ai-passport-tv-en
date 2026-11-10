@@ -1,4 +1,4 @@
-"""FAV1 定长限界分包；包头非法即断开连接，不做重新同步。"""
+"""FAV1 fixed-length bounded packets; an illegal header drops the connection, with no resynchronization."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ from enum import IntEnum
 HEADER = struct.Struct("!4sBBHIIII")
 MAGIC = b"FAV1"
 VERSION = 1
-# 控制包载荷上限，与固件 main/av_protocol.h 的 TV_CONTROL_MAX 一致；频道表放在一个 CONFIG 包里。
+# Control packet payload limit, matching TV_CONTROL_MAX in firmware main/av_protocol.h; the channel list goes in a single CONFIG packet.
 CONTROL_MAX = 24 * 1024
-# 视频包上限，须与固件 AV_VIDEO_MAX 一致；取自 frames.VIDEO_MAX，不重复定义。
+# Video packet limit; must match firmware AV_VIDEO_MAX. Taken from frames.VIDEO_MAX, not redefined.
 from .frames import VIDEO_MAX
-# ffmpeg 输出的一个 40 ms 块：640 个 s16le 单声道采样。
+# One 40 ms block of ffmpeg output: 640 mono s16le samples.
 AUDIO_PCM_BYTES = 1280
-# 该块上线的字节数：4 字节 IMA ADPCM 头加 640 个半字节（见 adpcm.py），须与固件 AV_AUDIO_BYTES 一致。
+# On-wire size of that block: 4-byte IMA ADPCM header plus 640 nibbles (see adpcm.py); must match firmware AV_AUDIO_BYTES.
 AUDIO_BYTES = 324
 UINT32_MAX = 0xFFFFFFFF
 IO_TIMEOUT = 0.25
@@ -29,20 +29,20 @@ class Kind(IntEnum):
     HELLO = 1
     CONFIG = 2
     PCM = 3
-    # 画面：切成条带的一帧索引图。名称沿用 JPEG 以与固件的取值对应，载荷并非 JPEG。
+    # Picture: one index image cut into stripes. The name JPEG is kept to match the firmware value; the payload is not JPEG.
     JPEG = 4
     END = 5
     ERROR = 6
-    # 索引所指的 256 色调色板，每个频道首帧之前发送一次。
+    # 256-color palette the indices point to; sent once before each channel's first frame.
     PALETTE = 7
 
-# 唯一使用的标志位，仅用于视频：本包是上一包所起始那一帧的后续条带。
-# 同一帧的多个包共用一个时间戳，需要此标志与重复帧区分。
+# The only flag in use, for video only: this packet is a continuation stripe of the frame the previous packet started.
+# Packets of one frame share a timestamp, so this flag is needed to tell them from repeated frames.
 VIDEO_CONTINUES = 0x01
 
 
 class ProtocolError(ValueError):
-    """对端输入非法；消息中不得包含对端载荷。"""
+    """Illegal peer input; the message must not contain the peer's payload."""
 
 
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ class Packet:
     seq: int
     pts_ms: int
     payload: bytes = b""
-    # 仅视频使用，且只能是 VIDEO_CONTINUES；用普通整数，多余的位由范围检查拦下。
+    # Video only, and only VIDEO_CONTINUES; a plain integer, extra bits are caught by the range check.
     flags: int = 0
 
     def encode(self) -> bytes:
@@ -137,7 +137,7 @@ def _read_exact(sock: socket.socket, size: int, deadline: float) -> bytes:
 
 def receive_packet(sock: socket.socket, timeout: float = IO_TIMEOUT,
                    expected_session: int | None = None) -> Packet:
-    """包头与载荷共用一个总期限；先校验长度再分配缓冲。"""
+    """Header and payload share one overall deadline; length is validated before allocating a buffer."""
     deadline = time.monotonic() + timeout
     raw = _read_exact(sock, HEADER.size, deadline)
     magic, version, kind, flags, session, seq, pts, length = HEADER.unpack(raw)
@@ -147,7 +147,7 @@ def receive_packet(sock: socket.socket, timeout: float = IO_TIMEOUT,
         kind = Kind(kind)
     except ValueError:
         raise ProtocolError("unknown packet type") from None
-    # 与设备一致：只允许视频包带 VIDEO_CONTINUES 一个标志。
+    # Same as the device: only video packets may carry the single VIDEO_CONTINUES flag.
     if flags and not (kind == Kind.JPEG and flags == VIDEO_CONTINUES):
         raise ProtocolError("unsupported packet flags")
     validate_length(kind, length)
@@ -159,10 +159,10 @@ def receive_packet(sock: socket.socket, timeout: float = IO_TIMEOUT,
 
 def send_packet(sock: socket.socket, packet: Packet,
                 timeout: float = IO_TIMEOUT, deadline: float | None = None) -> None:
-    """无应用层发送队列，一次最多写一个限长包，共用一个总期限。
+    """No application-layer send queue; writes at most one bounded packet at a time under one overall deadline.
 
-    套接字为非阻塞。写到一半超时属于致命错误，不得在未写完的包后追加 ERROR。
-    `deadline` 供同一帧的多个包共用，使整帧而不是每个包受期限约束。
+    The socket is non-blocking. A timeout midway through a write is fatal; no ERROR may be appended after a partly written packet.
+    `deadline` is shared by all packets of one frame, so the deadline binds the whole frame rather than each packet.
     """
     data = memoryview(packet.encode())
     if deadline is None:
@@ -209,10 +209,10 @@ class WritePacer:
 
 def _write_slice(sock: socket.socket, data: memoryview, deadline: float,
                  pacer: WritePacer | None = None) -> bool:
-    """写出已编码包的一个分片；期限已过时返回 False。
+    """Write one slice of an encoded packet; return False if the deadline has passed.
 
-    调用方对包编码一次、分片多次写入，使同一循环在大视频包发送期间仍能发音频。
-    超时返回 False 而不抛异常，由调用方决定整包如何处置。
+    The caller encodes the packet once and writes it in several slices, so the same loop can still send audio while a large video packet goes out.
+    A timeout returns False instead of raising; the caller decides what to do with the whole packet.
     """
     remaining = memoryview(data)
     while remaining:

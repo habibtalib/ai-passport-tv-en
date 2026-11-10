@@ -1732,20 +1732,20 @@ static void refresh_status_text(void) {
     // table while this runs.
     char name[UI_MENU_NAME_MAX];
     current_channel_name(name,sizeof(name));
-    snprintf(status_text[0],sizeof(status_text[0]),"频道  %s",name);
+    snprintf(status_text[0],sizeof(status_text[0]),"Channel  %s",name);
 
     unsigned bars=wifi_bars();
-    if (bars) snprintf(status_text[1],sizeof(status_text[1]),"信号  %u/4",bars);
-    else snprintf(status_text[1],sizeof(status_text[1]),"信号  --");
+    if (bars) snprintf(status_text[1],sizeof(status_text[1]),"Signal  %u/4",bars);
+    else snprintf(status_text[1],sizeof(status_text[1]),"Signal  --");
 
     int soc=atomic_load(&s.battery_soc);
-    if (soc>=0) snprintf(status_text[2],sizeof(status_text[2]),"电量  %d%%",soc);
-    else snprintf(status_text[2],sizeof(status_text[2]),"电量  --");
+    if (soc>=0) snprintf(status_text[2],sizeof(status_text[2]),"Battery  %d%%",soc);
+    else snprintf(status_text[2],sizeof(status_text[2]),"Battery  --");
 
     // It says "WiFi" rather than "network" because that is the word on the
     // setup page the viewer will land on, and it says which arrow because the
     // other one does nothing here.
-    snprintf(status_text[3],sizeof(status_text[3]),"长按 OK 退出电视");
+    snprintf(status_text[3],sizeof(status_text[3]),"Hold OK to exit TV");
 }
 
 // Draw one stripe's worth of overlay, if this stripe is one the overlay occupies.
@@ -1786,7 +1786,7 @@ static void overlay_stripe(unsigned stripe_y, uint8_t *pixels) {
             const int box_h=(bar_y+bar_h)-box_top;
             if ((int)first<(unsigned)(box_top+box_h) && (int)last>(unsigned)box_top) {
                 char text[20];
-                snprintf(text,sizeof(text),"音量 %u%%",s.menu.volume);
+                snprintf(text,sizeof(text),"Volume %u%%",s.menu.volume);
                 // One block first, so the text and the bar sit on the same
                 // known colour rather than directly on the picture.
                 ui_text_fill(surface,0,box_top,(int)AV_WIDTH,box_h,UI_COLOR_BOX);
@@ -1831,7 +1831,7 @@ static void overlay_stripe(unsigned stripe_y, uint8_t *pixels) {
         const int level_y=header+16;
         if ((int)last>level_y-UI_TEXT_PAD_Y && (int)first<level_y+LINE_HEIGHT) {
             char text[32];
-            snprintf(text,sizeof(text),"亮度  %u%%",
+            snprintf(text,sizeof(text),"Brightness  %u%%",
                      av_brightness_percent(s.menu.brightness));
             ui_text_draw(surface,14,level_y,text,UI_COLOR_TEXT,UI_COLOR_BOX);
             // The bar sits below the label, laid out from the label's own box so
@@ -1847,7 +1847,7 @@ static void overlay_stripe(unsigned stripe_y, uint8_t *pixels) {
             // The hint, dimmed, one line under the bar.
             const int hint_y=bar_y+bar_h+10;
             if ((int)last>hint_y-UI_TEXT_PAD_Y && (int)first<hint_y+LINE_HEIGHT) {
-                ui_text_draw(surface,14,hint_y,"上下调节，OK 完成",
+                ui_text_draw(surface,14,hint_y,"Up/Down adjust, OK done",
                              UI_COLOR_DIM,UI_COLOR_BACKDROP);
             }
         }
@@ -2278,7 +2278,7 @@ for(unsigned y=0;y<AV_HEIGHT && !stopping();y+=AV_STRIPE_ROWS) {
     char heading[UI_MENU_NAME_MAX+16];
     const char *reason=NULL;
     if (failed) {
-        reason="连不上服务器";
+        reason="Cannot reach server";
     }
     bool has_heading=s.channel[0]!=0;
     if (has_heading) {
@@ -2294,7 +2294,7 @@ for(unsigned y=0;y<AV_HEIGHT && !stopping();y+=AV_STRIPE_ROWS) {
         // viewer who sees the same words for both cannot tell whether the
         // wait is normal.
         snprintf(heading,sizeof(heading),
-                 dialling ? "正在连接" : "正在打开频道");
+                 dialling ? "Connecting" : "Opening channel");
         has_heading=true;
     }
 
@@ -2311,7 +2311,7 @@ for(unsigned y=0;y<AV_HEIGHT && !stopping();y+=AV_STRIPE_ROWS) {
     // worse than saying nothing.
     const char *hint=NULL;
     if (reason) {
-        hint="长按 OK 退出";
+        hint="Hold OK to exit";
     }
 
     // Measured with the padding each line is drawn with, not the glyphs

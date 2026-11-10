@@ -1,4 +1,4 @@
-<p align="right"><a href="README.zh_CN.md">简体中文</a> · <strong>English</strong></p>
+> **English-only edition.** This fork translates the firmware UI, server messages and docs into English. Original project: [guolifu/ai-passport-tv](https://github.com/guolifu/ai-passport-tv).
 
 # Passport TV
 

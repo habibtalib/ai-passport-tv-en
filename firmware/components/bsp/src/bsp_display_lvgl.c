@@ -1,5 +1,5 @@
 // components/bsp/src/bsp_display_lvgl.c
-// LVGL 接入单独成文件:不用 LVGL 的开发者删掉本文件 + idf_component.yml 里的两条依赖即可。
+// LVGL integration lives in its own file: developers not using LVGL can delete this file plus the two dependencies in idf_component.yml.
 #include "bsp_display.h"
 #include "bsp_display_rounding.h"
 #include "bsp_pins.h"
@@ -64,7 +64,7 @@ static void rounded_flush_event(lv_event_t *event)
 lv_display_t *bsp_lvgl_init(void) {
     if (s_disp) return s_disp;
     if (!bsp_display_panel()) {
-        ESP_LOGE(TAG, "请先成功调用 bsp_display_init()");
+        ESP_LOGE(TAG, "Call bsp_display_init() successfully first");
         return NULL;
     }
 
@@ -72,13 +72,13 @@ lv_display_t *bsp_lvgl_init(void) {
         // Port 2.9.0 has no public completion handshake for asynchronous deinit.
         // Never overwrite a possibly live context after a partial port failure.
         if (s_port_init_failed) {
-            ESP_LOGE(TAG, "LVGL port 初始化未完成，需重启后重试");
+            ESP_LOGE(TAG, "LVGL port init incomplete, reboot and retry");
             return NULL;
         }
         const lvgl_port_cfg_t pc = ESP_LVGL_PORT_INIT_CONFIG();
         if (lvgl_port_init(&pc) != ESP_OK) {
             s_port_init_failed = true;
-            ESP_LOGE(TAG, "lvgl_port_init 失败，需重启后重试");
+            ESP_LOGE(TAG, "lvgl_port_init failed, reboot and retry");
             return NULL;
         }
         s_port_initialized = true;
@@ -87,21 +87,21 @@ lv_display_t *bsp_lvgl_init(void) {
     const lvgl_port_display_cfg_t dc = {
         .panel_handle = bsp_display_panel(),
         .io_handle    = bsp_display_io(),
-        // ⚠ C3 无 PSRAM,DMA 只能用内部 RAM。40 行单缓冲约 19.2KB，
-        // 可减少窗口命令和队列提交次数；仍保留单缓冲，避免双缓冲挤压音频/Wi-Fi。
+        // WARNING: the C3 has no PSRAM and DMA can only use internal RAM. A 40-line single buffer is about 19.2KB,
+        // which reduces window commands and queue submissions; still single-buffered, to avoid double buffering squeezing audio/Wi-Fi.
         .buffer_size   = (uint32_t)BSP_LCD_W * BSP_LVGL_DRAW_BUFFER_LINES,
         .double_buffer = false,
         .hres = BSP_LCD_W, .vres = BSP_LCD_H,
-        // 旋转/镜像必须在这里配:esp_lvgl_port 注册显示时会重新下发 MADCTL,
-        // 覆盖 bsp_display.c 里 esp_lcd_panel_mirror() 的设置。
+        // Rotation/mirroring must be configured here: esp_lvgl_port re-sends MADCTL when it registers the display,
+        // overriding the esp_lcd_panel_mirror() setting in bsp_display.c.
         .rotation = { .swap_xy = false, .mirror_x = false, .mirror_y = false },
-        // swap_bytes:LVGL 输出小端 RGB565,ST7789 走 SPI 要大端 → 需交换高低字节。
+        // swap_bytes: LVGL outputs little-endian RGB565, but the ST7789 over SPI wants big-endian -> bytes must be swapped.
         .flags = { .buff_dma = true, .swap_bytes = true },
     };
     // The port mutex is recursive. Keep registration and the mask callback in
     // one critical section, before the new display can produce its first flush.
     if (!lvgl_port_lock(0)) {
-        ESP_LOGE(TAG, "LVGL 初始化加锁失败");
+        ESP_LOGE(TAG, "LVGL init lock failed");
         return NULL;
     }
     lv_display_t *disp = lvgl_port_add_disp(&dc);
@@ -113,7 +113,7 @@ lv_display_t *bsp_lvgl_init(void) {
         mask_registered = lv_display_get_event_count(disp) == count + 1;
     }
     if (!mask_registered) {
-        ESP_LOGE(TAG, "LVGL display 或圆角回调注册失败");
+        ESP_LOGE(TAG, "LVGL display or rounded-corner callback registration failed");
         if (disp) lvgl_port_remove_disp(disp);
         lvgl_port_unlock();
         // Retain the initialized port for retry. Deinit is asynchronous and can
@@ -129,7 +129,7 @@ lv_display_t *bsp_lvgl_init(void) {
     bsp_display_lvgl_callbacks(&flush, disp);
     lvgl_port_unlock();
 
-    ESP_LOGI(TAG, "LVGL 就绪，全局圆角=%d，外部填充=黑色", BSP_LVGL_SCREEN_RADIUS);
+    ESP_LOGI(TAG, "LVGL ready, global corner radius=%d, outer fill=black", BSP_LVGL_SCREEN_RADIUS);
     return s_disp;
 }
 

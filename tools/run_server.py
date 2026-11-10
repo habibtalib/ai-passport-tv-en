@@ -25,7 +25,7 @@ def service_directory(root: Path) -> Path:
 
 def read_settings(path: Path) -> dict[str, str]:
     if path.stat().st_size > 65536:
-        raise ValueError(f'{path.name}: 配置文件过大 / configuration too large')
+        raise ValueError(f'{path.name}: configuration too large')
     settings = {}
     for number, raw in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
         line = raw.strip()
@@ -34,7 +34,7 @@ def read_settings(path: Path) -> dict[str, str]:
         key, separator, value = line.partition('=')
         key, value = key.strip(), value.strip()
         if not separator or not re.fullmatch(r'TV_[A-Z0-9_]+', key) or key in settings:
-            raise ValueError(f'{path.name}:{number}: 需为唯一 TV_NAME=value / invalid or duplicate setting')
+            raise ValueError(f'{path.name}:{number}: invalid or duplicate setting (need unique TV_NAME=value)')
         if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
             value = value[1:-1]
         settings[key] = value
@@ -53,9 +53,9 @@ def effective_environment(root: Path, inherited: dict[str, str], platform: str) 
     result.setdefault('TV_PORT', '10745')
     result['TV_CHANNELS_FILE'] = str(root / 'channels.txt')
     if not result['TV_BIND'] or not 1 <= int(result['TV_PORT']) <= 65535:
-        raise ValueError('TV_BIND / TV_PORT 无效 / invalid bind address or port')
+        raise ValueError('invalid TV_BIND / TV_PORT (bind address or port)')
     if 'TV_PAIRING_TOKEN' in result:
-        raise ValueError('请取消 TV_PAIRING_TOKEN；本启动器只使用 pairing.token / unset TV_PAIRING_TOKEN')
+        raise ValueError('unset TV_PAIRING_TOKEN; this launcher uses only pairing.token')
     return result
 
 
@@ -82,12 +82,12 @@ def prepare_configuration(root: Path, interactive: bool) -> None:
     if any(line.strip() and not line.lstrip().startswith('#') for line in channels.read_text(encoding='utf-8').splitlines()):
         return
     if not interactive:
-        raise ValueError('请先填写 channels.txt 再启动 / add a live URL to channels.txt before starting')
-    print('首次配置频道 / First channel setup (HTTP/HTTPS live source)')
-    name = input('频道名称 / Channel name: ').strip()
-    url = input('直播源 URL / Live URL: ').strip()
+        raise ValueError('add a live URL to channels.txt before starting')
+    print('First channel setup (HTTP/HTTPS live source)')
+    name = input('Channel name: ').strip()
+    url = input('Live URL: ').strip()
     if not name or '|' in name or not url.startswith(('http://', 'https://')) or '|' in url:
-        raise ValueError('频道名称或 URL 无效 / invalid channel name or URL')
+        raise ValueError('invalid channel name or URL')
     # Keep comments and never overwrite an existing nonempty user's channel list.
     with channels.open('a', encoding='utf-8') as stream:
         stream.write(f'\ndemo | {name} | {url}\n')
@@ -118,15 +118,15 @@ def ensure_runtime(root: Path, service: Path) -> Path:
     python = venv / 'bin/python'
     if not python.is_file():
         if importlib.util.find_spec('ensurepip') is None:
-            raise ValueError('缺少 Python venv 安装组件；Ubuntu/Debian 请安装 python3-venv / install python3-venv (see README)')
-        print('创建独立 Python 环境 / Creating virtual environment', flush=True)
+            raise ValueError('missing Python venv support; install python3-venv (see README)')
+        print('Creating virtual environment', flush=True)
         subprocess.run([sys.executable, '-m', 'venv', str(venv)], check=True)
     requirements = service / 'requirements.txt'
     digest = hashlib.sha256(requirements.read_bytes()).hexdigest()
     stamp = venv / '.tv-requirements.sha256'
     healthy = subprocess.run([str(python), '-c', 'import numpy'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
     if not healthy or not stamp.is_file() or stamp.read_text().strip() != digest:
-        print('安装服务依赖（首次需要网络）/ Installing service dependencies', flush=True)
+        print('Installing service dependencies (network needed on first run)', flush=True)
         subprocess.run([str(python), '-m', 'pip', 'install', '-r', str(requirements)], check=True)
         stamp.write_text(digest + '\n')
     return python
@@ -149,43 +149,43 @@ def local_addresses() -> list[str]:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--setup-only', action='store_true', help='准备配置及依赖，不启动 / prepare only')
-    parser.add_argument('--check', action='store_true', help='只检查环境和配置，不安装或启动 / check only')
-    parser.add_argument('--show-pairing', action='store_true', help='本机显示配对码 / display local pairing code')
+    parser.add_argument('--setup-only', action='store_true', help='prepare configuration and dependencies, do not start')
+    parser.add_argument('--check', action='store_true', help='check environment and configuration only; do not install or start')
+    parser.add_argument('--show-pairing', action='store_true', help='display the pairing code locally')
     args = parser.parse_args(argv)
     if sys.platform not in ('darwin', 'linux'):
-        raise ValueError('仅支持 macOS 和 Linux / macOS and Linux only')
+        raise ValueError('macOS and Linux only')
     root, service = ROOT, service_directory(ROOT)
     if args.show_pairing:
         code = (root / 'pairing.code').read_text().strip()
         if not re.fullmatch(r'[A-Z0-9]{4}', code, re.ASCII):
-            raise ValueError('pairing.code 无效 / invalid pairing.code')
+            raise ValueError('invalid pairing.code')
         print(code)
         return 0
     for executable in ('ffmpeg', 'ffprobe'):
         if not shutil.which(executable):
-            raise ValueError(f'缺少 {executable}，请先按 README 安装 / install prerequisites from README')
+            raise ValueError(f'missing {executable}; install prerequisites from README')
     if not args.check:
         prepare_configuration(root, sys.stdin.isatty())
     env = effective_environment(root, dict(os.environ), sys.platform)
     if args.check:
         python = root / '.venv/bin/python'
         if not python.is_file():
-            raise ValueError('请先运行 --setup-only 安装依赖 / run --setup-only first')
+            raise ValueError('run --setup-only first')
         check_configuration(root, env, service, python)
         print('PASS: Python / FFmpeg / channels / pairing / server configuration')
         return 0
     python = ensure_runtime(root, service)
     check_configuration(root, env, service, python)
-    print('配置已就绪 / Configuration ready', flush=True)
-    print(f"设备端口 / Device port: {env['TV_PORT']}", flush=True)
+    print('Configuration ready', flush=True)
+    print(f"Device port: {env['TV_PORT']}", flush=True)
     for address in local_addresses():
-        print(f'电脑地址候选 / Host address: {address}', flush=True)
-    print('配对码 / Pairing code: ./start-server.sh --show-pairing', flush=True)
-    print('macOS: 应用层平滑发送 / userspace pacing' if sys.platform == 'darwin' else 'Linux: 保留配置的内核及应用层发包节奏 / configured TCP + userspace pacing', flush=True)
+        print(f'Host address: {address}', flush=True)
+    print('Pairing code: ./start-server.sh --show-pairing', flush=True)
+    print('macOS: userspace pacing' if sys.platform == 'darwin' else 'Linux: configured TCP + userspace pacing', flush=True)
     if args.setup_only:
         return 0
-    print('正在启动；保持本窗口打开，Ctrl+C 停止 / Starting; Ctrl+C to stop', flush=True)
+    print('Starting; keep this window open, Ctrl+C to stop', flush=True)
     os.chdir(service)
     os.execve(str(python), [str(python), '-u', '-m', 'server.standalone', '--bind', env['TV_BIND'], '--port', env['TV_PORT'], '--token-file', str(root / 'pairing.token')], env)
     return 0
@@ -195,8 +195,8 @@ if __name__ == '__main__':
     try:
         raise SystemExit(main())
     except (OSError, ValueError, subprocess.CalledProcessError) as error:
-        print(f'启动失败 / Cannot start: {error}', file=sys.stderr)
+        print(f'Cannot start: {error}', file=sys.stderr)
         raise SystemExit(1)
     except (KeyboardInterrupt, EOFError):
-        print('\n已取消 / Cancelled', file=sys.stderr)
+        print('\nCancelled', file=sys.stderr)
         raise SystemExit(130)

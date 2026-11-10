@@ -1,6 +1,6 @@
 // components/bsp/include/bsp_pins.h
-// FoloToy AI Passport 硬件引脚与参数的【单一事实来源】。换板/改硬件只需改这一个文件。
-// 每项都注明"为什么是这个值",便于二次开发时判断能不能改。
+// FoloToy AI Passport: SINGLE SOURCE OF TRUTH for hardware pins and parameters. Changing boards/hardware only requires editing this file.
+// Each item says "why this value", so a developer can judge whether it may be changed.
 #pragma once
 
 #include "driver/spi_master.h"
@@ -8,7 +8,7 @@
 #include "hal/adc_types.h"
 
 // ============================================================================
-// 显示:ST7789P3 240x320,4-line SPI
+// Display: ST7789P3 240x320, 4-line SPI
 // ============================================================================
 #define BSP_LCD_W            240
 #define BSP_LCD_H            320
@@ -17,17 +17,17 @@
 #define BSP_LCD_SCLK         8
 #define BSP_LCD_CS           1
 #define BSP_LCD_DC           20
-// -1 = 复位脚未接 MCU(硬接 3.3V),由 esp_lcd_panel_reset() 走 SWRESET 软复位。
+// -1 = reset pin not wired to the MCU (hard-tied to 3.3V); esp_lcd_panel_reset() does a SWRESET soft reset.
 #define BSP_LCD_RST          (-1)
-#define BSP_LCD_BL           21          // 背光,LEDC PWM 调光
+#define BSP_LCD_BL           21          // Backlight, LEDC PWM dimming
 #define BSP_LCD_PCLK_HZ      (80 * 1000 * 1000)
-// ST7789 SCK 空闲低、上升沿采样 → SPI mode 0。
+// ST7789 SCK idles low, samples on the rising edge -> SPI mode 0.
 #define BSP_LCD_SPI_MODE     0
-// 本屏出厂即需反色(参考例程 TFT_init() 末尾无条件发 0x21 INVON)。
-// 若换屏后画面呈负片,把这里改成 0。
+// This panel needs color inversion out of the box (the reference example TFT_init() unconditionally sends 0x21 INVON at the end).
+// If the image looks like a negative after changing panels, set this to 0.
 #define BSP_LCD_INVERT_COLOR 1
 
-// 背光 LEDC 参数
+// Backlight LEDC parameters
 #define BSP_BL_LEDC_TIMER    LEDC_TIMER_0
 #define BSP_BL_LEDC_MODE     LEDC_LOW_SPEED_MODE
 #define BSP_BL_LEDC_CHANNEL  LEDC_CHANNEL_0
@@ -35,59 +35,59 @@
 #define BSP_BL_LEDC_FREQ_HZ  5000
 
 // ============================================================================
-// 按键:三键共用一个 ADC 引脚,靠分压电阻区分
+// Buttons: three keys share one ADC pin, told apart by divider resistors
 //
-// 电路:3.3V ── 外部上拉 10k ──┬── ADC 节点(GPIO0 / ADC1_CH0)
-//                              └── 按键 ── 分压电阻 ── GND
+// Circuit: 3.3V -- external pull-up 10k --+-- ADC node (GPIO0 / ADC1_CH0)
+//                                         +-- key -- divider resistor -- GND
 //
-//   上   : 0Ω    → 3.3 x 0/10k       =   0 mV
-//   下   : 1k    → 3.3 x 1k/11k      ≈ 300 mV
-//   确定 : 2.2k  → 3.3 x 2.2k/12.2k  ≈ 595 mV
-//   松开 : 无通路 → 上拉到 3300 mV
+//   Up    : 0 ohm    -> 3.3 x 0/10k       =   0 mV
+//   Down  : 1k       -> 3.3 x 1k/11k      ~ 300 mV
+//   OK    : 2.2k     -> 3.3 x 2.2k/12.2k  ~ 595 mV
+//   Idle  : no path  -> pulled up to 3300 mV
 //
-// ⚠ 不能改用【内部上拉】:约 45kΩ 且精度差,会把三档全挤到 0~154mV 并随温漂重叠。
+// WARNING: do NOT switch to the INTERNAL pull-up: about 45k ohm and imprecise, it would squeeze all three levels into 0~154mV and let them overlap with temperature drift.
 //
-// ★ 换了分压/上拉阻值怎么办:进 demo 的 Button 页,它实时显示当前 ADC 电压;
-//   逐个按住三个键记下读数,取相邻两档的中点作为窗口边界,改下面的 BSP_BTN_MV 即可。
+// NOTE, if you change the divider/pull-up values: open the demo's Button page, which shows the live ADC voltage;
+//   hold each of the three keys and note the readings, take the midpoint of adjacent levels as the window boundary, and edit BSP_BTN_MV below.
 // ============================================================================
 #define BSP_BTN_ADC_UNIT     ADC_UNIT_1
 #define BSP_BTN_ADC_CHANNEL  ADC_CHANNEL_0    // GPIO0
 #define BSP_BTN_COUNT        3
-// 三键共用的那一个 GPIO。除 ADC 读取外,deep sleep 的按键唤醒也用它:任一键都把
-// 该脚拉到低电平,所以唤醒按低电平触发。
+// The one GPIO shared by the three keys. Besides ADC reads, deep sleep button wake also uses it: any key pulls
+// the pin low, so the wake triggers on low level.
 #define BSP_BTN_GPIO         0
 
-// 按键判定时序(ms):由 BSP 显式下发给 button 组件,不依赖它的 Kconfig 默认值。
-// 短按判定窗口 180ms 与组件默认一致,写在这里是为了和应用手感放在一起调;
-// 长按组件默认 1500ms,要按住 1.5s 才触发,在这台三键小设备上明显偏迟钝,收敛到 500ms。
-// (组件对 BUTTON_LONG_PRESS_TIME_MS 的 Kconfig 下限同样是 500ms,想再短只能在代码里下发。)
-#define BSP_BTN_SHORT_PRESS_MS  180   // 短按(单击)判定窗口
-#define BSP_BTN_LONG_PRESS_MS   500   // 长按触发时间
+// Button timing (ms): passed explicitly by the BSP to the button component, not relying on its Kconfig defaults.
+// The short-press window of 180ms matches the component default; it is written here so it can be tuned together with the app feel.
+// The component's default long press is 1500ms, which must be held 1.5s to trigger and feels sluggish on this three-key device, so it is tightened to 500ms.
+// (The component's Kconfig lower bound for BUTTON_LONG_PRESS_TIME_MS is also 500ms; going shorter can only be done by passing it in code.)
+#define BSP_BTN_SHORT_PRESS_MS  180   // Short press (single click) window
+#define BSP_BTN_LONG_PRESS_MS   500   // Long press trigger time
 
-// 每键的电压窗口 {min_mV, max_mV};边界取相邻档中点。
-// 确定键上界留宽到 1900,是为了和松开态的 3300mV 拉开距离。
+// Voltage window per key {min_mV, max_mV}; boundaries are the midpoints of adjacent levels.
+// The OK key's upper bound is widened to 1900 to keep distance from the 3300mV idle state.
 #define BSP_BTN_MV_TABLE  { {0, 150}, {150, 447}, {447, 1900} }
-// 高于最高按键窗口即视为松开态(松开约 3300mV)。入睡前据此拒绝在按键被
-// 按住时休眠——否则低电平唤醒条件在入睡瞬间就成立(见 bsp_button.h)。
+// Above the highest key window counts as idle (idle is about 3300mV). Before sleeping this is used to refuse sleeping
+// while a key is held - otherwise the low-level wake condition is already true at the instant of sleeping (see bsp_button.h).
 #define BSP_BTN_MV_RELEASED_MIN  1900
 
 // ============================================================================
-// I2C:ES8311(音频 codec)与 CW2017(电量计)共用一条总线
+// I2C: ES8311 (audio codec) and CW2017 (fuel gauge) share one bus
 // ============================================================================
 #define BSP_I2C_PORT         I2C_NUM_0
 #define BSP_I2C_SDA          10
 #define BSP_I2C_SCL          7
-#define BSP_I2C_ES8311_ADDR  0x18    // 7 位地址(8 位形式为 0x30)
-#define BSP_I2C_CW2017_ADDR  0x63    // 7 位地址
+#define BSP_I2C_ES8311_ADDR  0x18    // 7-bit address (8-bit form is 0x30)
+#define BSP_I2C_CW2017_ADDR  0x63    // 7-bit address
 
 // ============================================================================
-// 音频:ES8311,I2S 全双工(同端口一 tx 一 rx,共用 MCLK/BCLK/WS)
+// Audio: ES8311, I2S full-duplex (one tx and one rx on the same port, sharing MCLK/BCLK/WS)
 // ============================================================================
 #define BSP_I2S_PORT         I2S_NUM_0
 #define BSP_I2S_MCLK         6
 #define BSP_I2S_BCLK         5
 #define BSP_I2S_WS           3
-#define BSP_I2S_DOUT         2       // 播放:MCU → codec
-#define BSP_I2S_DIN          4       // 录音:codec → MCU
-// -1 = 功放使能脚未接 MCU(常通)。若你的板子接了,填对应 GPIO。
+#define BSP_I2S_DOUT         2       // Playback: MCU -> codec
+#define BSP_I2S_DIN          4       // Record: codec -> MCU
+// -1 = amplifier enable pin not wired to the MCU (always on). If your board wires it, fill in the GPIO.
 #define BSP_I2S_PA_CTRL      (-1)

@@ -1,2 +1,2 @@
 # coding: utf-8
-numpy        # TV_DEGRADE=perceptual（默认）、perceptual_2d、mosaic 需要；ladder 只依赖标准库
+numpy        # needed for TV_DEGRADE=perceptual (default), perceptual_2d, mosaic; ladder uses only the standard library

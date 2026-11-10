@@ -1,5 +1,5 @@
 // components/bsp/src/bsp_audio.c
-// 移植自 trae_card/components/platform/platform_esp32/src/audio_es8311.c
+// Ported from trae_card/components/platform/platform_esp32/src/audio_es8311.c
 #include "bsp_audio.h"
 #include "bsp_es8311_sleep_check.h"
 #include "bsp_i2c.h"
@@ -21,7 +21,7 @@ static const audio_codec_ctrl_if_t *s_ctrl;
 static const audio_codec_data_if_t *s_data;
 static const audio_codec_if_t      *s_codec;
 static const audio_codec_gpio_if_t *s_gpio;
-// 记录当前已打开的格式,用于判断"要不要 close 重开"(见头文件里的坑说明)。
+// Records the currently opened format, to decide "whether to close and reopen" (see the pitfall note in the header).
 static uint32_t s_hz;
 static uint8_t  s_bits, s_ch;
 static bool     s_opened;
@@ -134,8 +134,8 @@ typedef struct {
     uint8_t value;
 } es8311_reg_value_t;
 
-// 寄存器序列不依赖 esp_codec_dev 的 opened 标志。REG45=0x01 额外关闭
-// BCLK/LRCK 内部上拉，比当前 esp_codec_dev 1.6.2 的默认 suspend 更彻底。
+// The register sequence does not depend on the esp_codec_dev opened flag. REG45=0x01 additionally turns off
+// the internal pull-ups on BCLK/LRCK, which is more thorough than the default suspend of the current esp_codec_dev 1.6.2.
 static const es8311_reg_value_t s_es8311_sleep_sequence[] = {
     {0x32, 0x00}, {0x17, 0x00}, {0x0E, 0xFF}, {0x12, 0x02},
     {0x14, 0x00}, {0x0D, 0xFA}, {0x15, 0x00}, {0x02, 0x10},
@@ -156,9 +156,9 @@ static esp_err_t audio_disable_i2s_channels(void) {
     for (size_t i = 0; i < sizeof(channels) / sizeof(channels[0]); i++) {
         if (!channels[i].channel) continue;
         esp_err_t e = i2s_channel_disable(channels[i].channel);
-        if (e == ESP_ERR_INVALID_STATE) e = ESP_OK; // READY 即已停止。
+        if (e == ESP_ERR_INVALID_STATE) e = ESP_OK; // READY means already stopped.
         if (e != ESP_OK) {
-            ESP_LOGE(TAG, "I2S %s 停止失败: %s", channels[i].name,
+            ESP_LOGE(TAG, "I2S %s stop failed: %s", channels[i].name,
                      esp_err_to_name(e));
             if (first_error == ESP_OK) first_error = e;
         }
@@ -179,11 +179,11 @@ static esp_err_t es8311_force_sleep_once(unsigned attempt) {
         uint8_t actual = 0;
         int read_result = s_ctrl->read_reg(s_ctrl, item->reg, 1, &actual, 1);
         if (read_result == ESP_CODEC_DEV_OK) {
-            ESP_LOGE(TAG, "ES8311 休眠写入失败 attempt=%u REG%02X "
+            ESP_LOGE(TAG, "ES8311 sleep write failed attempt=%u REG%02X "
                           "expected=0x%02X actual=0x%02X error=%d",
                      attempt, item->reg, item->value, actual, write_result);
         } else {
-            ESP_LOGE(TAG, "ES8311 休眠写入失败 attempt=%u REG%02X "
+            ESP_LOGE(TAG, "ES8311 sleep write failed attempt=%u REG%02X "
                           "expected=0x%02X actual=unavailable error=%d read_error=%d",
                      attempt, item->reg, item->value, write_result, read_result);
         }
@@ -197,7 +197,7 @@ static esp_err_t es8311_force_sleep_once(unsigned attempt) {
         if (read_result == ESP_CODEC_DEV_OK &&
             bsp_es8311_sleep_check_matches(item, actual)) continue;
 
-        ESP_LOGE(TAG, "ES8311 休眠校验失败 attempt=%u REG%02X "
+        ESP_LOGE(TAG, "ES8311 sleep verification failed attempt=%u REG%02X "
                       "expected=0x%02X mask=0x%02X actual=0x%02X error=%d",
                  attempt, item->reg, item->value, item->mask, actual, read_result);
         valid = false;
@@ -213,7 +213,7 @@ static esp_err_t es8311_force_sleep(void) {
     for (unsigned attempt = 1; attempt <= ES8311_SLEEP_ATTEMPTS; attempt++) {
         esp_err_t e = es8311_force_sleep_once(attempt);
         if (e == ESP_OK) {
-            ESP_LOGI(TAG, "ES8311 已进入低功耗状态并通过寄存器校验");
+            ESP_LOGI(TAG, "ES8311 entered low-power state and passed register verification");
             return ESP_OK;
         }
         if (attempt < ES8311_SLEEP_ATTEMPTS) {
@@ -221,27 +221,27 @@ static esp_err_t es8311_force_sleep(void) {
         }
     }
 
-    ESP_LOGE(TAG, "ES8311 强制休眠失败");
+    ESP_LOGE(TAG, "ES8311 forced sleep failed");
     return ESP_FAIL;
 }
 
-// esp_codec_dev_open() 会先 disable 再重配 I2S；close 后通道处于 READY，
-// 先 enable 一次可让下一次 open 的内部 disable 合法。
+// esp_codec_dev_open() first disables then reconfigures I2S; after close the channel is in READY,
+// enabling it once makes the internal disable of the next open legal.
 static esp_err_t audio_prepare_i2s_reopen(void) {
     esp_err_t e = s_tx ? i2s_channel_enable(s_tx) : ESP_ERR_INVALID_STATE;
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "I2S TX 恢复失败: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "I2S TX resume failed: %s", esp_err_to_name(e));
         return e;
     }
     e = s_rx ? i2s_channel_enable(s_rx) : ESP_ERR_INVALID_STATE;
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "I2S RX 恢复失败: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "I2S RX resume failed: %s", esp_err_to_name(e));
         i2s_channel_disable(s_tx);
     }
     return e;
 }
 
-// esp_codec_dev 不拥有传入的接口和 I2S channel；失败回滚必须按依赖逆序逐一释放。
+// esp_codec_dev does not own the interfaces and I2S channel passed in; failure rollback must release them one by one in reverse dependency order.
 static void audio_delete_codec(void) {
     if (s_dev) {
         esp_codec_dev_delete(s_dev);
@@ -256,7 +256,7 @@ static void audio_delete_codec(void) {
         if (result != ESP_CODEC_DEV_OK) {
             s_codec_release_failed = true;
             audio_track_error(result);
-            ESP_LOGE(TAG, "ES8311 codec 释放失败，需重启恢复: %d", result);
+            ESP_LOGE(TAG, "ES8311 codec release failed, reboot needed to recover: %d", result);
         }
         s_codec = NULL;
     }
@@ -277,13 +277,13 @@ static void audio_cleanup(void) {
         i2s_channel_disable(s_rx);
         esp_err_t e = i2s_del_channel(s_rx);
         if (e == ESP_OK) s_rx = NULL;
-        else ESP_LOGE(TAG, "I2S RX 回滚失败: %s", esp_err_to_name(e));
+        else ESP_LOGE(TAG, "I2S RX rollback failed: %s", esp_err_to_name(e));
     }
     if (s_tx) {
         i2s_channel_disable(s_tx);
         esp_err_t e = i2s_del_channel(s_tx);
         if (e == ESP_OK) s_tx = NULL;
-        else ESP_LOGE(TAG, "I2S TX 回滚失败: %s", esp_err_to_name(e));
+        else ESP_LOGE(TAG, "I2S TX rollback failed: %s", esp_err_to_name(e));
     }
     if (s_ctrl) {
         audio_codec_delete_ctrl_if(s_ctrl);
@@ -310,9 +310,9 @@ static esp_err_t i2s_full_duplex_init(void) {
         .intr_priority = 0,
     };
     esp_err_t e = i2s_new_channel(&chan, &s_tx, &s_rx);
-    if (e != ESP_OK) { ESP_LOGE(TAG, "i2s_new_channel 失败: %s", esp_err_to_name(e)); return e; }
+    if (e != ESP_OK) { ESP_LOGE(TAG, "i2s_new_channel failed: %s", esp_err_to_name(e)); return e; }
 
-    // 这里的采样率只用于建通道;实际速率由 esp_codec_dev_open() 按需重配。
+    // The sample rate here is only used to create the channel; the actual rate is reconfigured on demand by esp_codec_dev_open().
     i2s_std_config_t std = {
         .clk_cfg = {
             .sample_rate_hz = 16000,
@@ -339,17 +339,17 @@ static esp_err_t i2s_full_duplex_init(void) {
         },
     };
     if ((e = i2s_channel_init_std_mode(s_tx, &std)) != ESP_OK) {
-        ESP_LOGE(TAG, "i2s tx 初始化失败: %s", esp_err_to_name(e)); return e;
+        ESP_LOGE(TAG, "i2s tx init failed: %s", esp_err_to_name(e)); return e;
     }
     if ((e = i2s_channel_init_std_mode(s_rx, &std)) != ESP_OK) {
-        ESP_LOGE(TAG, "i2s rx 初始化失败: %s", esp_err_to_name(e)); return e;
+        ESP_LOGE(TAG, "i2s rx init failed: %s", esp_err_to_name(e)); return e;
     }
-    // esp_codec_dev_open 内部重配前会先 i2s_channel_disable,而 disable 要求通道处于
-    // RUNNING;刚 init 的通道是 READY,会打一条 "channel has not been enabled yet" 错误日志。
-    // 这里先 enable 一次让那次 disable 合法(此时 codec 未配,不出声)。
+    // Before reconfiguring, esp_codec_dev_open first calls i2s_channel_disable, and disable requires the channel to be
+    // RUNNING; a freshly init'ed channel is READY, which would print a "channel has not been enabled yet" error log.
+    // Enable once here so that disable is legal (the codec is not configured yet, so there is no sound).
     e = i2s_channel_enable(s_tx);
     if (e == ESP_OK) e = i2s_channel_enable(s_rx);
-    if (e != ESP_OK) ESP_LOGE(TAG, "i2s channel enable 失败: %s", esp_err_to_name(e));
+    if (e != ESP_OK) ESP_LOGE(TAG, "i2s channel enable failed: %s", esp_err_to_name(e));
     return e;
 }
 
@@ -368,7 +368,7 @@ static esp_err_t audio_create_codec(void) {
         .no_dac_ref = true, // Mono capture must use ADC, not the DAC reference.
     });
     if (!s_codec || s_io_error != ESP_CODEC_DEV_OK) {
-        ESP_LOGE(TAG, "es8311_codec_new 失败: %d", s_io_error);
+        ESP_LOGE(TAG, "es8311_codec_new failed: %d", s_io_error);
         audio_delete_codec();
         return ESP_FAIL;
     }
@@ -388,7 +388,7 @@ esp_err_t bsp_audio_init(void) {
     if (s_codec_release_failed) return ESP_ERR_INVALID_STATE;
     if (s_initialized) return ESP_OK;
     if (s_tx || s_rx || s_ctrl || s_data || s_codec || s_gpio) {
-        ESP_LOGE(TAG, "上次音频初始化回滚不完整，拒绝覆盖仍存活的资源句柄");
+        ESP_LOGE(TAG, "Previous audio init rollback incomplete, refusing to overwrite the still-live resource handles");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -397,12 +397,12 @@ esp_err_t bsp_audio_init(void) {
 
     s_ctrl = audio_codec_new_i2c_ctrl(&(audio_codec_i2c_cfg_t){
         .port = BSP_I2C_PORT,
-        .addr = BSP_I2C_ES8311_ADDR << 1,   // 该接口要 8 位地址形式
+        .addr = BSP_I2C_ES8311_ADDR << 1,   // this interface needs the 8-bit address form
         .bus_handle = bsp_i2c_bus(),
     });
     if (!s_ctrl) {
-        ESP_LOGE(TAG, "ES8311 控制口创建失败 —— 用 bsp_i2c_scan() 确认 0x%02X 是否应答;"
-                      "检查 SDA=GPIO%d / SCL=GPIO%d 接线与 codec 供电",
+        ESP_LOGE(TAG, "ES8311 control port creation failed - use bsp_i2c_scan() to confirm whether 0x%02X ACKs;"
+                      "check SDA=GPIO%d / SCL=GPIO%d wiring and codec power",
                  BSP_I2C_ES8311_ADDR, BSP_I2C_SDA, BSP_I2C_SCL);
         return ESP_FAIL;
     }
@@ -412,15 +412,15 @@ esp_err_t bsp_audio_init(void) {
     s_data = audio_codec_new_i2s_data(&(audio_codec_i2s_cfg_t){
         .port = BSP_I2S_PORT, .tx_handle = s_tx, .rx_handle = s_rx,
     });
-    if (!s_data) { ESP_LOGE(TAG, "I2S 数据口创建失败"); e = ESP_ERR_NO_MEM; goto fail; }
+    if (!s_data) { ESP_LOGE(TAG, "I2S data port creation failed"); e = ESP_ERR_NO_MEM; goto fail; }
 
     s_gpio = audio_codec_new_gpio();
-    if (!s_gpio) { ESP_LOGE(TAG, "codec GPIO 接口创建失败"); e = ESP_ERR_NO_MEM; goto fail; }
+    if (!s_gpio) { ESP_LOGE(TAG, "codec GPIO interface creation failed"); e = ESP_ERR_NO_MEM; goto fail; }
 
     if ((e = audio_create_codec()) != ESP_OK) goto fail;
 
     s_initialized = true;
-    ESP_LOGI(TAG, "ES8311 就绪");
+    ESP_LOGI(TAG, "ES8311 ready");
     return ESP_OK;
 
 fail:
@@ -433,7 +433,7 @@ fail:
 esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
     if (!s_initialized) return ESP_ERR_INVALID_STATE;
     if (s_sleeping) return ESP_ERR_INVALID_STATE;
-    if (s_opened && s_hz == hz && s_bits == bits && s_ch == ch) return ESP_OK;   // 同格式复用
+    if (s_opened && s_hz == hz && s_bits == bits && s_ch == ch) return ESP_OK;   // reuse for the same format
 
     esp_err_t e = ESP_FAIL;
     s_io_error = ESP_CODEC_DEV_OK;
@@ -452,18 +452,18 @@ esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
         .channel = ch,
         .channel_mask = ESP_CODEC_DEV_MAKE_CHANNEL_MASK(0),
         .sample_rate = hz,
-        .mclk_multiple = 0,          // 0 → 驱动按默认 256xfs 取 MCLK
+        .mclk_multiple = 0,          // 0 -> the driver takes MCLK at the default 256xfs
     };
     int r = esp_codec_dev_open(s_dev, &fs);
     if (r != ESP_CODEC_DEV_OK || s_io_error != ESP_CODEC_DEV_OK) {
-        ESP_LOGE(TAG, "esp_codec_dev_open 失败: %d interface=%d", r, s_io_error);
+        ESP_LOGE(TAG, "esp_codec_dev_open failed: %d interface=%d", r, s_io_error);
         e = ESP_FAIL;
         goto fail;
     }
 
-    // ⚠ open 之后【不要】手动覆写 ES8311 的时钟分频寄存器(REG01~06):
-    //   驱动已按采样率与 MCLK 精确算好,覆写会导致 ADC/DAC 时序错乱、录音回放全是杂音。
-    //   这里只设麦克风模拟 PGA 增益。
+    // WARNING: after open, do NOT manually overwrite the ES8311 clock divider registers (REG01~06):
+    //   the driver has computed them exactly from the sample rate and MCLK; overwriting garbles ADC/DAC timing and recording/playback is all noise.
+    //   Only the microphone analog PGA gain is set here.
     r = esp_codec_dev_set_in_gain(s_dev, 30.0f);
     if (r == ESP_CODEC_DEV_OK) r = esp_codec_dev_set_out_vol(s_dev, s_volume);
     if (r != ESP_CODEC_DEV_OK || s_io_error != ESP_CODEC_DEV_OK) {
@@ -472,7 +472,7 @@ esp_err_t bsp_audio_set_format(uint32_t hz, uint8_t bits, uint8_t ch) {
     }
 
     s_opened = true; s_hz = hz; s_bits = bits; s_ch = ch;
-    ESP_LOGI(TAG, "codec 打开 %luHz/%ubit/%uch", (unsigned long)hz, bits, ch);
+    ESP_LOGI(TAG, "codec opened %luHz/%ubit/%uch", (unsigned long)hz, bits, ch);
     return ESP_OK;
 
 fail:
@@ -525,10 +525,10 @@ esp_err_t bsp_audio_prepare_deep_sleep(void) {
     };
     esp_err_t e = gpio_config(&cfg);
     if (e != ESP_OK) {
-        ESP_LOGE(TAG, "I2S 引脚高阻配置失败: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "I2S pin high-Z configuration failed: %s", esp_err_to_name(e));
         if (first_error == ESP_OK) first_error = e;
     } else {
-        ESP_LOGI(TAG, "I2S MCLK/BCLK/WS/DOUT/DIN 已切换为高阻");
+        ESP_LOGI(TAG, "I2S MCLK/BCLK/WS/DOUT/DIN switched to high-Z");
     }
     return first_error;
 }
@@ -536,7 +536,7 @@ esp_err_t bsp_audio_prepare_deep_sleep(void) {
 esp_err_t bsp_audio_wake(void) {
     if (!s_initialized || !s_sleeping) return ESP_OK;
 
-    // 允许内部格式设置重新 open codec；失败时再次 close，避免留下半唤醒状态。
+    // Allow the internal format setting to reopen the codec; on failure close again, avoiding a half-awake state.
     s_sleeping = false;
     esp_err_t e = bsp_audio_set_format(s_hz ? s_hz : AUDIO_DEFAULT_HZ,
                              s_bits ? s_bits : AUDIO_DEFAULT_BITS,
@@ -545,12 +545,12 @@ esp_err_t bsp_audio_wake(void) {
         s_opened = false;
         s_sleeping = true;
         s_sleep_result = e;
-        ESP_LOGE(TAG, "ES8311 唤醒失败: %s", esp_err_to_name(e));
+        ESP_LOGE(TAG, "ES8311 wake failed: %s", esp_err_to_name(e));
         return e;
     }
 
     s_sleep_result = ESP_OK;
-    ESP_LOGI(TAG, "ES8311 已从低功耗状态恢复");
+    ESP_LOGI(TAG, "ES8311 restored from low-power state");
     return ESP_OK;
 }
 

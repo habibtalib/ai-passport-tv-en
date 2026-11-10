@@ -1,4 +1,4 @@
-"""面向直播频道的单客户端局域网服务器，仅依赖标准库，由 ffmpeg 转码。"""
+"""Single-client LAN server for live channels; standard library only, transcoded by ffmpeg."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from .timeline import SourceState
 from .rate import ADAPTIVE, ByteRate, FramePacer
 from .live import (CHANNELS, CHANNEL_AGENTS, DEFAULT_CHANNEL, LiveChannel, LiveError,
                    AUDIO_MAX_LOOKAHEAD_MS, PREBUFFER_TIMEOUT_S, channel_list)
-# 时序常量统一来自 media.py，live.py 同样从那里导入。
+# Timing constants all come from media.py; live.py imports them from there too.
 from .media import (AUDIO_CHUNK_MS, AUDIO_LEAD_MS, DURATION_MS, FPS,
                     START_DELAY_MS, VIDEO_LEAD_MS)
 from .protocol import (IO_TIMEOUT, VIDEO_CONTINUES, Kind, Packet,
@@ -39,15 +39,15 @@ from .protocol import (IO_TIMEOUT, VIDEO_CONTINUES, Kind, Packet,
                        send_packet, _write_slice, WritePacer)
 from . import reconnect
 
-# 替代 --token-file 的环境变量名；只有令牌值需与固件一致，变量名无需一致。
+# Environment variable name used instead of --token-file; only the token value must match the firmware, not the variable name.
 TOKEN_ENV = "TV_PAIRING_TOKEN"
-# 取值均为发送端实际使用的常量，不另存副本。
+# All values are the constants the sender actually uses; no separate copies are kept.
 CONFIG = {"width": frames.WIDTH, "height": frames.HEIGHT, "fps": FPS,
           "sample_rate": 16000,
           "channels": 1, "sample_bits": 16, "audio_codec": "ima_adpcm",
           "audio_chunk_ms": AUDIO_CHUNK_MS,
           "video_max_bytes": frames.VIDEO_MAX,
-          # 设备据此校验自身几何；两端不一致时拒绝通信，避免条带画到错误的行。
+          # The device checks its own geometry against this; on mismatch it refuses to talk, so stripes are not drawn on the wrong rows.
           "stripe_rows": frames.STRIPE_ROWS,
           "duration_ms": DURATION_MS,
           "start_delay_ms": START_DELAY_MS, "audio_lead_ms": AUDIO_LEAD_MS,
@@ -55,10 +55,10 @@ CONFIG = {"width": frames.WIDTH, "height": frames.HEIGHT, "fps": FPS,
 PRIVATE_NETWORKS = tuple(ipaddress.ip_network(net) for net in
                          ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8"))
 
-# 单帧写入时限（秒），超时即放弃会话；须小于设备约 3 秒无数据即断开的阈值。
+# Per-frame write deadline (seconds); the session is abandoned on timeout. Must be below the ~3 s no-data threshold at which the device disconnects.
 FRAME_WRITE_DEADLINE_S = float(os.environ.get("TV_FRAME_DEADLINE_S", "2.5"))
 
-# 套接字发送缓冲区大小；见 CLAUDE.md 关键设计决策 4。
+# Socket send buffer size; see CLAUDE.md key design decision 4.
 SEND_BUFFER_BYTES = int(os.environ.get("TV_SEND_BUFFER", "16384"))
 # Linux per-socket pacing, bytes/s including both media. Zero keeps kernel defaults.
 TCP_PACING_RATE = int(os.environ.get("TV_TCP_PACING_RATE", "0"))
@@ -82,10 +82,10 @@ def configure_tcp_pacing(connection: socket.socket) -> None:
 # Unpaced fallback. Audio may interleave only between complete protocol packets.
 VIDEO_SLICE_BYTES = 4096
 
-# 单次写入超过该秒数时记录其大小与所在位置；0 表示每次都记录。
+# When a single write takes longer than this many seconds, log its size and location; 0 logs every write.
 PROBE_SLOW_S = float(os.environ.get("TV_PROBE_SLOW_S", "0.05"))
 
-# 新会话等待首批媒体的时长，超时后设备停留在重连提示画面。
+# How long a new session waits for the first media; after the timeout the device stays on the reconnect notice screen.
 STARTUP_WAIT_S = min(PREBUFFER_TIMEOUT_S, 10)
 
 
@@ -109,7 +109,7 @@ def validate_token(token: str) -> bytes:
 
 
 def load_token(path: Path | None = None) -> bytes | None:
-    """返回配对令牌；未配置时返回 None（不校验 HELLO 内容，由调用方提示）。"""
+    """Return the pairing token; None when unset (HELLO content is not checked, the caller shows a notice)."""
     environment = os.environ.get(TOKEN_ENV)
     if path is not None and environment is not None:
         raise ValueError("choose either token environment or token file")
@@ -125,7 +125,7 @@ def load_token(path: Path | None = None) -> bytes | None:
                 stat.S_IMODE(info.st_mode) not in (0o400, 0o600)):
             raise ValueError("token file must be owner-only, regular, mode 0400 or 0600")
         raw = stream.read(130)
-    # 允许一个末尾 LF，读取长度有上限。
+    # Allow one trailing LF; the read length is capped.
     try:
         return validate_token(raw.removesuffix(b"\n").decode("ascii"))
     except UnicodeError:
@@ -133,7 +133,7 @@ def load_token(path: Path | None = None) -> bytes | None:
 
 
 def authenticate(packet: Packet, token: bytes | None) -> None:
-    """校验首个 HELLO；配置了令牌时同时校验令牌。"""
+    """Validate the first HELLO; also validate the token when one is configured."""
     if (packet.kind != Kind.HELLO or packet.session != 0 or
             packet.seq != 0 or packet.pts_ms != 0):
         raise ProtocolError("expected initial HELLO")
@@ -141,7 +141,7 @@ def authenticate(packet: Packet, token: bytes | None) -> None:
     if type(hello.get("version")) is not int or hello["version"] != 1:
         raise ProtocolError("unsupported HELLO version")
     if token is None:
-        # 未配置令牌：不检查 HELLO 内容，但上面已校验 HELLO 形状。
+        # No token configured: HELLO content is not checked, but the HELLO shape was validated above.
         return
     supplied = hello.get("token")
     if not isinstance(supplied, str):
@@ -155,14 +155,14 @@ def authenticate(packet: Packet, token: bytes | None) -> None:
 
 
 class AVServer:
-    """单线程负责接入与收发，多余连接直接关闭；阻塞操作均带时限，每 50 ms 轮询停止标志。"""
+    """One thread handles accept and I/O, extra connections are closed at once; blocking ops have deadlines, and the stop flag is polled every 50 ms."""
 
     def __init__(self, token: bytes | None, bind: str = "127.0.0.1",
                  port: int = 8096, logger=None):
         if bind != WILDCARD_BIND and not local_ipv4(bind):
             raise ValueError("bind must be 0.0.0.0 or a loopback or RFC1918 IPv4 address")
         if token is not None:
-            # 构造时即校验，格式错误的令牌在此报错；None 表示不校验。
+            # Validated at construction: a malformed token fails here; None means no validation.
             validate_token(token.decode("ascii"))
         self.token = token
         self.bind, self.port = bind, port
@@ -170,18 +170,18 @@ class AVServer:
         self.ready = threading.Event()
         self.listener: socket.socket | None = None
         self.completed = self.rejected = self.failed = self.dropped_video = 0
-        # 握手阶段即关闭的连接（换频道、设备休眠、端口探测）单独计数，不计入 failed。
+        # Connections closed during the handshake (channel switch, device sleep, port probe) are counted separately and not in failed.
         self.abandoned = 0
         self.audio_sent = self.video_sent = 0
         self.session_id = 0
         self.phase = "idle"
         self.live_channel: LiveChannel | None = None
-        # 空串发送音视频；audio 或 video 仅用于诊断，见 _pace_live。
+        # Empty string sends both audio and video; audio or video alone is for diagnostics only, see _pace_live.
         self.media_filter = ""
         self.channel_name = ""
         self.live_note = ""
         self.ffmpeg = "ffmpeg"
-        # 可注入，便于不依赖 ffmpeg 和网络测试发送循环。
+        # Injectable, so the send loop can be tested without ffmpeg or the network.
         self.channel_factory = LiveChannel
         self.frame_deadline_s = FRAME_WRITE_DEADLINE_S
         self.logger = logger or (lambda message: None)
@@ -189,7 +189,7 @@ class AVServer:
         self.state_history: List[Dict[str, Any]] = []
 
     def set_session_state(self, state: SessionState, session: int, reason: str = "", **kwargs: Any) -> None:
-        """记录会话状态迁移及当时的发送计数。"""
+        """Record session state transitions and the send counters at that moment."""
         old_state = getattr(self, "session_state", SessionState.CLOSED)
         self.session_state = state
         now_m = time.monotonic()
@@ -219,7 +219,7 @@ class AVServer:
             listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             listener.bind((self.bind, self.port))
             self.port = listener.getsockname()[1]
-            # 设备每秒重试一次；服务单个连接期间需留有积压队列，否则重试被直接拒绝。
+            # The device retries once a second; a backlog queue must remain while one connection is served, otherwise retries are refused outright.
             listener.listen(8)
             listener.setblocking(False)
             self.ready.set()
@@ -233,7 +233,7 @@ class AVServer:
                         continue
                     connection.setblocking(False)
                     connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-                    # 发送缓冲区只需容纳一个画面包；见 CLAUDE.md 关键设计决策 4。
+                    # The send buffer only needs to hold one picture packet; see CLAUDE.md key design decision 4.
                     connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF,
                                           SEND_BUFFER_BYTES)
 
@@ -246,8 +246,8 @@ class AVServer:
                         self._session(connection)
                         self.completed += 1
                     except (OSError, EOFError, ProtocolError, LiveError) as error:
-                        # 写入可能不完整，必须关闭连接；日志只含异常类名，不含载荷、令牌、对端地址。
-                        # 鉴权之前断开计为放弃，之后断开计为失败。
+                        # The write may be incomplete, so the connection must be closed; the log has only the exception class name, no payload, token or peer address.
+                        # A disconnect before authentication counts as abandoned, after it as failed.
                         if self.session_id == 0:
                             self.abandoned += 1
                             outcome = "abandoned"
@@ -255,7 +255,7 @@ class AVServer:
                             self.failed += 1
                             outcome = "failed"
                         reason = type(error).__name__
-                        # 不在此补采 ffmpeg 诊断：_live_session 的 finally 已记录并清空 live_channel。
+                        # No ffmpeg diagnostics are collected here: the finally in _live_session already logs and clears live_channel.
                     except Exception as error:
                         if self.session_id == 0:
                             self.abandoned += 1
@@ -269,20 +269,20 @@ class AVServer:
                         sanitized_tb = " -> ".join([f"{Path(f.filename).name}:{f.lineno}:{f.name}" for f in tb[-3:]])
                         self.live_note = f"unexpected={type(error).__name__}[{sanitized_tb}]"
                     finally:
-                        # 仅记录代码内定义的阶段名与异常类名，不记录 str/repr(error)。
+                        # Log only stage names defined in code and exception class names, never str/repr(error).
                         note = f" note={self.live_note}" if self.live_note else ""
                         self.logger(f"session={self.session_id} state={outcome} "
                                     f"reason={reason} phase={self.phase} "
                                     f"authenticated={int(self.session_id != 0)} "
                                     f"audio_sent={self.audio_sent} video_sent={self.video_sent}{note}")
                         self.live_note = ""
-                # 拒绝旧会话期间积压的连接，不影响后续会话。
+                # Reject connections that piled up during the old session; later sessions are unaffected.
                 self._reject_waiting()
         self.listener = None
 
     def _reject_waiting(self) -> None:
         assert self.listener is not None
-        # 即使连接洪泛也限定处理次数。
+        # Bound the number of handled connections even under a connection flood.
         for _ in range(8):
             try:
                 connection, _ = self.listener.accept()
@@ -292,20 +292,20 @@ class AVServer:
             self.rejected += 1
 
     def _device_left(self, connection: socket.socket, session: int) -> bool:
-        """设备已结束本会话时返回 True：发来 END，或直接关闭连接。
+        """Return True when the device has ended this session: it sent END, or closed the connection.
 
-        写入前及一帧的多次写入之间调用，使正常换频道不被计为错误。收到 END 以外的包抛 ProtocolError；
-        无 END 的断开（EOFError）原样抛出，由 serve() 按握手是否完成分类。
+        Called before writes and between the writes of one frame, so a normal channel switch is not counted as an error. A packet other than END raises ProtocolError;
+        a disconnect without END (EOFError) is raised as is, and serve() classifies it by whether the handshake completed.
         """
         if not select.select([connection], [], [], 0)[0]:
             return False
         try:
             packet = receive_packet(connection, IO_TIMEOUT, expected_session=session)
         except TimeoutError:
-            # select 报告可读但数据不足一个完整包：设备仍在，继续会话。
+            # select reports readable but there is less than one full packet: the device is still there, continue the session.
             return False
         except EOFError:
-            # 无 END 的断开原样抛出，由 serve() 分类。
+            # A disconnect without END is raised as is; serve() classifies it.
             raise
         if packet.kind != Kind.END:
             raise ProtocolError("only END allowed while playing")
@@ -326,7 +326,7 @@ class AVServer:
                 try:
                     packet = receive_packet(connection, expected_session=session)
                 except TimeoutError:
-                    # select 报告可读但数据尚不可取：不是对端错误，继续等待。
+                    # select reports readable but data is not yet available: not a peer error, keep waiting.
                     self.phase = "schedule_wait"
                     continue
                 if packet.kind != Kind.END:
@@ -337,7 +337,7 @@ class AVServer:
         return False
 
     def make_channel(self) -> LiveChannel:
-        """为会话的频道 id 创建新的未启动频道。"""
+        """Create a new, unstarted channel for the session's channel id."""
         return self.channel_factory(CHANNELS[self.channel_name], self.ffmpeg,
                                     CHANNEL_AGENTS.get(self.channel_name, ""))
 
@@ -345,21 +345,21 @@ class AVServer:
         return channel_list()
 
     def _live_session(self, connection: socket.socket, channel_id: str) -> None:
-        """以单一单调时钟起点调度一个直播频道。
+        """Schedule one live channel from a single monotonic clock origin.
 
-        换频道即新会话，每个会话独占一个转码进程与一个时间起点；
-        视频晚于呈现时刻则丢弃，不得为视频阻塞音频。
+        A channel switch is a new session; each session owns one transcoder process and one time origin;
+        video later than its presentation time is dropped, and audio must never block on video.
         """
         self.phase = "live_start"
-        # 频道对应的 User-Agent 一并传入：不少镜像只响应抓取时的播放器。
+        # The channel's User-Agent is passed along too: many mirrors only answer the player used when they were scraped.
         channel = self.channel_factory(CHANNELS[channel_id], self.ffmpeg,
                                        CHANNEL_AGENTS.get(channel_id, ""))
         self.channel_name = channel_id
         try:
             session = secrets.randbelow(0xFFFFFFFF) + 1
             self.session_id = session
-            # 先发 CONFIG 再向源请求数据：设备握手只给约 2 秒，先采样调色板会使握手超时。
-            # CONFIG 只描述格式，与调色板无关。
+            # Send CONFIG before requesting data from the source: the device handshake allows only ~2 s, and sampling the palette first would time it out.
+            # CONFIG describes only the format and is independent of the palette.
             send_packet(connection, Packet(Kind.CONFIG, session, 0, 0,
                                            json_bytes(dict(CONFIG, session=session,
                                                            **({'fps': self.profile.fps, 'quality': self.profile.name}
@@ -367,11 +367,11 @@ class AVServer:
                                                            channel=channel_id,
                                                            channel_list=self.session_channels()))))
             self.phase = "live_palette"
-            # 首帧前必须有调色板，缺失则设备无色可用，画面全黑。
+            # A palette is required before the first frame; without one the device has no colors and the picture is all black.
             try:
                 channel.build_palette()
             except LiveError as error:
-                # 明确告知设备失败，否则它会一直等待调色板。
+                # Tell the device about the failure explicitly, otherwise it waits for the palette forever.
                 try:
                     send_packet(connection, Packet(Kind.ERROR, session, 0, 0,
                                                    json_bytes({"reason": "source unavailable"})))
@@ -380,8 +380,8 @@ class AVServer:
                 raise LiveError(str(error)) from None
             if not channel.palette:
                 raise LiveError("channel has no palette")
-            # start() 放在 try 内，Popen 失败时不泄漏管道与 stderr 文件。
-            # 源起播失败不结束会话，设备停留在重连提示画面并重试。
+            # start() is inside the try so that a Popen failure does not leak the pipes and the stderr file.
+            # A source that fails to start does not end the session; the device stays on the reconnect notice screen and retries.
             failed = ""
             try:
                 channel.start()
@@ -390,13 +390,13 @@ class AVServer:
                 failed = "start_failed"
             if not failed:
                 self.live_channel = channel
-                # 校准失败只告警，不拒绝会话。
+                # A calibration failure only warns; the session is not refused.
                 if not channel.timeline.calibrated:
                     self.logger(
                         f"session={session} WARNING no clock calibration: "
                         f"{channel.timeline.calibration_note}; the picture will not "
                         f"be paired and no frames will be sent")
-            # PALETTE 紧随 CONFIG、先于所有帧；每个会话按频道各发一次。
+            # PALETTE follows CONFIG and precedes all frames; sent once per channel in each session.
             send_packet(connection, Packet(Kind.PALETTE, session, 1, 0,
                                            channel.palette))
             self.logger(f"session={session} state=live channel={channel_id}")
@@ -406,10 +406,10 @@ class AVServer:
                 if channel.failure():
                     failed = "decoder_stopped"
                     break
-                # 轮询连接与停止标志，不整段休眠：否则停止请求被忽略，设备重连也要排队等待。
+                # Poll the connection and the stop flag instead of sleeping the whole span: otherwise stop requests are ignored and a device reconnect has to queue.
                 if self.stop.is_set():
                     return
-                # _wait_until 会改写 phase，调用后恢复，否则此处结束的会话会被记为调度等待。
+                # _wait_until rewrites phase; restore it after the call, otherwise a session ending here would be recorded as waiting for the schedule.
                 waiting = self._wait_until(connection, min(deadline, time.monotonic() + 0.02), session)
                 self.phase = "live_prebuffer"
                 if not waiting:
@@ -453,27 +453,27 @@ class AVServer:
 
     def _pace_live(self, connection: socket.socket, channel: LiveChannel,
                    session: int, resume: reconnect.WireState | None = None) -> None:
-        # 起点不得早于现在超过音频提前量，否则 ffmpeg 预填的数据会立即到期并突发发送。
-        # 预缓冲深度不计入起点；开头的突发由 AUDIO_MAX_LOOKAHEAD_MS 与每帧一个时隙限制。
-        # 起点取 START_DELAY_MS 与 AUDIO_LEAD_MS 的较大者，决定音频时间戳可领先时钟的幅度。
+        # The origin must not be earlier than now by more than the audio lead, otherwise data prefilled by ffmpeg expires at once and is sent in a burst.
+        # Prebuffer depth is not counted in the origin; the opening burst is limited by AUDIO_MAX_LOOKAHEAD_MS and one slot per frame.
+        # The origin is the larger of START_DELAY_MS and AUDIO_LEAD_MS, which sets how far audio timestamps may lead the clock.
         origin = time.monotonic() + max(START_DELAY_MS, AUDIO_LEAD_MS) / 1000
         audio_pts = 0
-        # 视频时间戳随帧由 pop_video() 给出，此处不维护。
-        # 上一个画面发出时所在的时隙，-1 为尚无；时钟所在时隙超过它才可再发一帧。
-        # 用时隙而非到期时间，慢速循环、暂停或突发都无法使其与当前时钟脱节。
+        # Video timestamps come per frame from pop_video(); they are not maintained here.
+        # Slot in which the previous picture was sent, -1 if none yet; another frame may be sent only once the clock's slot exceeds it.
+        # Slots are used instead of due times, so a slow loop, a pause or a burst cannot make it drift from the current clock.
         last_slot = -1
-        # 源帧率是发送上限；完整帧模式通过间隔满足预算，增量模式调整单帧字节数。
-        # 无 fps 属性的替身频道按名义帧率调度。
-        # TV_ADAPTIVE=0 时字节率也固定。
+        # The source frame rate is the send cap; full-frame mode meets the budget through the interval, delta mode adjusts per-frame bytes.
+        # Stand-in channels without an fps attribute are scheduled at the nominal frame rate.
+        # With TV_ADAPTIVE=0 the byte rate is fixed too.
         fps = getattr(channel, "fps", FPS)
         controller = ByteRate(fps, adaptive=ADAPTIVE)
         video_pacer = FramePacer(controller.rate, time.monotonic())
         write_pacer = WritePacer(WRITE_PACING_RATE, WRITE_PACING_CHUNK) if WRITE_PACING_RATE else None
         # Do not silently cap a configured 12 KiB write at the old 4 KiB slice.
         video_slice_bytes = write_pacer.chunk_bytes if write_pacer else VIDEO_SLICE_BYTES
-        # 同时保存在 server 上，供测试读取会话最终的字节率。
+        # Also kept on the server so tests can read the final byte rate of the session.
         self._last_controller = controller
-        # 控制器每秒窗口的累计量：画面字节数、实际发出的帧数、最长单次写入、丢弃帧数。
+        # Controller per-second window totals: picture bytes, frames actually sent, longest single write, dropped frames.
         window_video_bytes = 0
         window_frames = 0
         window_worst_write = 0.0
@@ -481,12 +481,12 @@ class AVServer:
         window_started = time.monotonic()
         unwritable_since = None
         self._recovery_start = 0.0
-        # CONFIG 占序号 0，PALETTE 占 1，首个媒体包为 2；设备拒绝非连续序号。
+        # CONFIG takes sequence number 0, PALETTE 1, the first media packet 2; the device rejects non-consecutive sequence numbers.
         seq = 2
         last_report = 0.0
         last_audio = last_video = 0
-        # 发送时间戳 = 频道时间戳 + stamp_base；断流期间提示帧与静音推进了设备时钟，
-        # 换频道后的新进程靠它接续。
+        # Send timestamp = channel timestamp + stamp_base; the notice frames and silence advanced the device clock during a stream outage,
+        # and a new process after a channel switch continues from it.
         stamp_base = 0
         last_audio_wire = -AUDIO_CHUNK_MS
         last_video_wire = -1
@@ -496,7 +496,7 @@ class AVServer:
             stamp_base = (last_audio_wire + AUDIO_CHUNK_MS
                           - int(round(channel.session_clock.audio_items * AUDIO_CHUNK_MS)))
             origin = time.monotonic() - (audio_pts - AUDIO_LEAD_MS) / 1000.0
-        # 本循环最长无输出间隔及其间写入耗时；与设备侧报告对照可判断是哪一端停顿。
+        # Longest no-output gap in this loop and the write time within it; compared with the device-side report it shows which end stalled.
         gap_start = time.monotonic()
         max_send_gap = 0.0
         busy_us = 0.0
@@ -511,9 +511,9 @@ class AVServer:
             gap_start = at
 
         def hold_on_notice(empty_since: float) -> bool:
-            """停留在重连提示画面，直到源重新有数据。
+            """Stay on the reconnect notice screen until the source has data again.
 
-            会话结束（设备离开或要求停止）时返回 False。
+            Returns False when the session ends (the device left or asked to stop).
             """
             nonlocal channel, seq, audio_pts, origin, now, slot_now, last_slot, stamp_base
             nonlocal last_audio_wire, last_video_wire, window_started, window_worst_write
@@ -567,23 +567,23 @@ class AVServer:
                 continue
             now = time.monotonic()
             self._loops = getattr(self, "_loops", 0) + 1
-            # 画面时间戳随帧由 pop_video() 给出（内容时间轴，见 server/timeline.py），不在本循环推算。
-            # 设备按音频时钟呈现画面，时间戳超前的帧会占用接收缓冲直至音频欠载。
+            # Picture timestamps come per frame from pop_video() (content timeline, see server/timeline.py); this loop does not compute them.
+            # The device presents pictures by the audio clock; frames with timestamps too far ahead occupy the receive buffer until audio underruns.
             audio_at = origin + (audio_pts - AUDIO_LEAD_MS) / 1000
-            # 画面按自己的时隙发送，一个时隙为一个帧间隔；时钟所在时隙大于上次发送所在时隙即可发。
-            # 不能与音频到期时刻绑定：音频优先，画面永远轮不到。
-            # 也不用到期时间变量：把到期时间拉向当前时刻的写法会使判定每轮恒真。
+            # Pictures are sent in their own slots, one slot being one frame interval; a frame may be sent once the clock's slot is greater than the slot of the last send.
+            # It must not be tied to audio due times: audio has priority and pictures would never get a turn.
+            # Nor a due-time variable: pulling the due time toward the present would make the test always true on every pass.
             slot_now = int((now - origin) * fps)
-            # 音频掌管时间轴且不丢弃；视频须在自己的时隙到期时发送，等音频队列排空会使视频饿死。
-            # 限制音频领先墙钟的幅度，避免单次循环变慢后突发发送设备放不下的数据。
+            # Audio owns the timeline and is not dropped; video must be sent when its own slot is due, and waiting for the audio queue to drain would starve video.
+            # Limit how far audio leads the wall clock, so a slow loop pass is not followed by a burst the device cannot hold.
             audio_lookahead_ms = (audio_pts - AUDIO_LEAD_MS) - (now - origin) * 1000
             if audio_lookahead_ms < -400.0:
-                # 写入背压使发送落后实时：重新锚定起点，消除负的领先量。
+                # Write backpressure left sending behind real time: re-anchor the origin to remove the negative lead.
                 origin = now - (audio_pts - AUDIO_LEAD_MS) / 1000.0
                 slot_now = int((now - origin) * fps)
                 last_slot = min(last_slot, slot_now - 1)
                 audio_lookahead_ms = (audio_pts - AUDIO_LEAD_MS) - (now - origin) * 1000.0
-            # 每秒一条跟踪日志，须放在其所用变量计算完成之后。
+            # One trace log line per second; it must come after the variables it uses have been computed.
             if now - getattr(self, "_last_trace", now) >= 1.0:
                 self._last_trace = now
                 self.logger(
@@ -593,9 +593,9 @@ class AVServer:
                     f"look={audio_lookahead_ms:7.0f} "
                     f"a_due={int(audio_at<=now)} "
                     f"v_due={int(slot_now > last_slot)}")
-            # socket 须当前可写：阻塞表示设备队列已满，这是让发送跟随设备时钟的背压。
-            # 到期的音频写不进去就留到下一轮，音频不丢，audio_pts 与 seq 都不前进。
-            # 写之前先读：设备换频道时发 END 并立即关闭，先写会在帧中途得到 broken pipe。
+            # The socket must be writable now: blocking means the device queue is full, which is the backpressure that makes sending follow the device clock.
+            # Due audio that cannot be written is left for the next pass; audio is not lost, and neither audio_pts nor seq advances.
+            # Read before writing: when the device switches channel it sends END and closes at once, and writing first would hit a broken pipe mid-frame.
             readable, writable_now, _ = select.select([connection], [connection], [], 0)
             if connection in readable:
                 self.phase = "control_receive"
@@ -610,27 +610,27 @@ class AVServer:
                 window_worst_write = max(window_worst_write, now - unwritable_since)
             else:
                 unwritable_since = None
-            # 音频到期时严格优先于画面。让音频向画面让步的宽松规则会使音频近乎永远发不出去。
-            # 不会饿死画面：循环频率远高于音频到期频率，每块音频至多让画面晚约 1 ms。
+            # Due audio is strictly preferred over pictures. A looser rule letting audio yield to pictures would make audio almost never go out.
+            # Pictures do not starve: the loop runs far more often than audio falls due, and each audio block delays a picture by about 1 ms at most.
             self.wire_bytes = getattr(self, "wire_bytes", 0)
-            # 是否允许音频早于其对应时刻发送。TV_AUDIO_FILL 默认开启：发送端把设备队列补到
-            # AUDIO_MAX_LOOKAHEAD_MS 并保持；关闭则音频恰按实时放出，画面包占线期间设备队列
-            # 得不到补充而欠载。
+            # Whether audio may be sent before its due time. TV_AUDIO_FILL is on by default: the sender tops the device queue up to
+            # AUDIO_MAX_LOOKAHEAD_MS and holds it there; when off, audio goes out exactly in real time and the device queue
+            # is not refilled while a picture packet occupies the line, so it underruns.
             audio_fill = os.environ.get("TV_AUDIO_FILL", "1") != "0"
             audio_due = (channel.audio_pending()
                          and audio_lookahead_ms <= AUDIO_MAX_LOOKAHEAD_MS
                          and (audio_fill or now >= audio_at))
-            # 音频到期不阻塞画面：两者不用 if/elif，同一轮内先音频、后画面；
-            # 否则画面只能在两块音频的空隙发送，而该空隙不存在。
+            # Due audio does not block pictures: no if/elif, audio first and then the picture in the same pass;
+            # otherwise pictures could only be sent in the gap between two audio blocks, and that gap does not exist.
             send_audio = audio_due and writable
             send_video = (slot_now > last_slot and writable and channel.video_pending()
                           and (not getattr(channel, "full_frames", False)
                                or video_pacer.ready(now)))
-            # 仅诊断用：--media audio 或 video 关闭其中一路，以定位故障；默认两路都开。
+            # For diagnostics only: --media audio or video turns off one of the two to locate a fault; both are on by default.
             if self.media_filter == "audio":
                 send_video = False
             elif self.media_filter == "video":
-                # 画面按音频位置调度：手动推进音频时间轴而非冻结，否则所有帧同时到期。
+                # Pictures are scheduled by audio position: advance the audio timeline by hand rather than freezing it, otherwise all frames fall due at once.
                 send_audio = False
                 audio_pts += AUDIO_CHUNK_MS
             self._trace = getattr(self, "_trace", 0) + 1
@@ -644,9 +644,9 @@ class AVServer:
                     f"frameK={sum(self._frame_sizes[-3:]) // 1024 if getattr(self,'_frame_sizes',None) else 0} "
                     f"wire_kbps={(self.wire_bytes*8/1000)/max(0.001, now-origin):7.1f}")
             if send_audio:
-                # 发送所有已到期的音频块，而非每轮一块：写画面包期间会积欠多个音频时隙，
-                # 逐轮补发会使领先量持续为负。上限 32 块（640 ms）仅防止病态队列独占循环；
-                # 同时受时钟和 AUDIO_MAX_LOOKAHEAD_MS 约束。
+                # Send all audio blocks that are due, not one per pass: several audio slots pile up while a picture packet is written,
+                # and catching up one per pass would keep the lead negative. The cap of 32 blocks (640 ms) only stops a pathological queue from monopolizing the loop;
+                # it is also bounded by the clock and AUDIO_MAX_LOOKAHEAD_MS.
                 for _ in range(32):
                     if not ((audio_fill or audio_at <= now)
                             and channel.audio_pending()
@@ -663,8 +663,8 @@ class AVServer:
                     self.phase = "live_pcm_send"
                     send_packet(connection, Packet(Kind.PCM, session, seq, stamp, block))
                     self.wire_bytes += len(block) + 24
-                    # stamp 是线上时间戳（来自声音自身的内容时间轴）；audio_pts 是发送端按已发块数
-                    # 推算的下一块到期时刻。两者不合并。
+                    # stamp is the on-wire timestamp (from the sound's own content timeline); audio_pts is the next block's due time
+                    # derived by the sender from the number of blocks sent. The two are not merged.
                     audio_pts += AUDIO_CHUNK_MS
                     seq += 1
                     self.audio_sent += 1
@@ -672,28 +672,28 @@ class AVServer:
             sent_something = send_audio
             if send_video:
                 sent_something = True
-                # 画面队列深度与音频一致，见 live.py 的 VIDEO_QUEUE_SECONDS。
+                # The picture queue depth matches the audio one, see VIDEO_QUEUE_SECONDS in live.py.
                 chosen = channel.pop_video()
                 frame, video_pts = chosen if chosen is not None else (None, None)
-                # 没有与队首声音匹配的帧不等于帧迟到：此时不消耗时隙，下一轮再取。
+                # No frame matching the head sound does not mean the frame is late: no slot is consumed, and the next pass tries again.
                 if frame is None:
-                    # 本轮无帧可发，仍须执行下面的等待、控制器更新与周期报告，不能 continue。
+                    # No frame to send this pass, but the waiting, controller update and periodic report below must still run, so no continue.
                     sent_something = False
                 else:
-                    # 时隙无论帧是否发出都已消耗：拥塞丢帧不能把时隙让给下一帧，否则积压会一次性放出。
-                    # 取决策时的值，不重读时钟。
+                    # The slot is consumed whether or not the frame goes out: a congestion drop must not hand the slot to the next frame, or the backlog would be released at once.
+                    # Take the value at decision time; do not re-read the clock.
                     last_slot = slot_now
                     self._frame_sizes = getattr(self, "_frame_sizes", [])
                     self._frame_sizes.append(sum(len(p) for p in frame))
-                    # 不做迟到否决：设备按到达即绘，略迟的帧仍值得发；丢弃会使索引跳进，引发持续丢帧。
-                    # 陈旧度由队列限定：队列定长，满时丢最旧。
+                    # No late veto: the device draws on arrival, a slightly late frame is still worth sending; dropping it would make the index jump and cause continuous drops.
+                    # Staleness is bounded by the queue: it has fixed length and drops the oldest when full.
                     if writable:
-                        # 不可写时丢弃整帧而非尝试：发不完的写入会阻塞单线程循环及音频，也不得在线上留下半个包。
-                        # 同一帧的各包要么全发要么不发。
+                        # When not writable, drop the whole frame instead of trying: a write that cannot finish would block the single-threaded loop and audio, and must not leave half a packet on the wire.
+                        # The packets of one frame are either all sent or none.
                         self.phase = "live_video_send"
-                        # 整帧一个写入时限 max(帧间隔, FRAME_WRITE_DEADLINE_S)，是失败上限而非调度；
-                        # 须小于设备约 3 秒的断开阈值，且不能短到让正常帧在传输期间超时。
-                        # 过期帧由调度器丢弃，慢帧只应损失该帧，不应结束会话。
+                        # One write deadline for the whole frame, max(frame interval, FRAME_WRITE_DEADLINE_S); it is a failure limit, not scheduling;
+                        # it must be below the device's ~3 s disconnect threshold, and not so short that a normal frame times out in transit.
+                        # Expired frames are dropped by the scheduler; a slow frame should cost only that frame, not end the session.
                         frame_deadline = time.monotonic() + max(1.0 / fps, FRAME_WRITE_DEADLINE_S)
                         if getattr(channel, "full_frames", False):
                             video_pacer.sent(sum(len(part) + 24 for part in frame),
@@ -701,13 +701,13 @@ class AVServer:
                         video_pts = max(video_pts + stamp_base, last_video_wire + 1)
                         last_video_wire = video_pts
                         for n, part in enumerate(frame):
-                            # 帧内各次写入之间检查设备是否已离开，避免正常换频道表现为 broken pipe。
+                            # Check between the writes of a frame whether the device has left, so a normal channel switch does not show up as a broken pipe.
                             self.phase = "control_receive"
                             if self._device_left(connection, session):
                                 return
-                            # 画面包之间让音频通过：画面包被设备窗口卡住时会阻塞整帧时限，期间无音频发出而欠载。
-                            # 各包自带长度与时间戳，格式不要求同一帧的包相邻，只要求单个包的字节连续。
-                            # 补发已到期的全部音频块（上限 32），逐块补发会使欠额持续增长。
+                            # Let audio through between picture packets: when a picture packet is stuck on the device window it holds up the whole frame deadline, and no audio goes out meanwhile, so it underruns.
+                            # Each packet carries its own length and timestamp; the format does not require the packets of a frame to be adjacent, only the bytes of a single packet to be contiguous.
+                            # Catch up on all due audio blocks (cap 32); catching up one block at a time would let the shortfall keep growing.
                             for _ in range(32):
                                 now_in_frame = time.monotonic()
                                 audio_at = origin + (audio_pts - AUDIO_LEAD_MS) / 1000
@@ -734,10 +734,10 @@ class AVServer:
                                 seq += 1
                                 self.audio_sent += 1
                             self.phase = "live_video_send"
-                            # 同一帧各包时间戳相同，除首包外以 VIDEO_CONTINUES 标志声明，否则设备按时间戳不前进而拒绝。
-                            # 单个画面包必须连续写出，中间不能插入音频包：设备读完包头后按 length 读取负载，
-                            # 插入的音频字节会被当作画面数据而结束会话。因此音频只在包之间发送，
-                            # 包内用 _write_slice 分片写入，分片仅为让循环不被整包占住并能响应停止请求。
+                            # All packets of a frame share the timestamp and, except the first, declare it with the VIDEO_CONTINUES flag, otherwise the device rejects them because the timestamp does not advance.
+                            # A single picture packet must be written contiguously with no audio packet inserted: after reading the header the device reads the payload by length,
+                            # and inserted audio bytes would be taken as picture data and end the session. So audio is sent only between packets,
+                            # and within a packet _write_slice writes in slices, only so the loop is not held by a whole packet and can respond to stop requests.
                             wire = Packet(Kind.JPEG, session, seq, video_pts, part,
                                           VIDEO_CONTINUES if n else 0).encode()
                             sent = 0
@@ -750,7 +750,7 @@ class AVServer:
                                     raise TimeoutError("video packet deadline expired")
                                 _probe_dt = time.monotonic() - _probe_t0
                                 note_send(_probe_dt)
-                                # 速率控制器按分片判断窗口：这是 socket 一次接受的单位，其耗时反映链路拥塞程度。
+                                # The rate controller judges the window by slices: that is the unit the socket accepts at once, and its duration reflects link congestion.
                                 if getattr(self, "session_state", None) != SessionState.RECOVERING and _probe_dt > window_worst_write:
                                     window_worst_write = _probe_dt
                                 if _probe_dt > PROBE_SLOW_S and os.environ.get("TV_TRACE") == "1":
@@ -759,15 +759,15 @@ class AVServer:
                                         f"took_ms={_probe_dt * 1000:.0f} phase={self.phase}")
                                 sent += len(data)
                             self.wire_bytes += len(part) + 24
-                            # 只统计画面字节：声音固定占 32 kB/s，计入会使各频道看起来一样重。
+                            # Count picture bytes only: sound is a fixed 32 kB/s, and counting it would make all channels look equally heavy.
                             window_video_bytes += len(part) + 24
                             seq += 1
                             self.video_sent += 1
-                        # 每帧只计一次（在包循环之外）：控制器用窗口字节数除以该值得到每帧成本。
+                        # Counted once per frame (outside the packet loop): the controller divides the window byte count by this to get the per-frame cost.
                         window_frames += 1
                         if getattr(self, "session_state", None) == SessionState.RECOVERING:
                             rec_start = getattr(self, "_recovery_start", window_started)
-                            # 至少 1.5 秒且 10 帧后才退出 RECOVERING，等待链路波动平息。
+                            # Leave RECOVERING only after at least 1.5 s and 10 frames, waiting for link fluctuation to settle.
                             if (now - rec_start >= 1.5) and window_frames >= 10:
                                 self.set_session_state(
                                     SessionState.PLAYING,
@@ -783,21 +783,21 @@ class AVServer:
                                 window_frames = 0
                                 window_dropped = 0
                     else:
-                        # 拥塞：放弃该帧以保住音频时间轴；时间戳取自时钟，丢帧只损失一张画面。
+                        # Congestion: give up the frame to protect the audio timeline; the timestamp comes from the clock, so a drop costs only one picture.
                         self.dropped_video += 1
                         window_dropped += 1
 
             if not sent_something:
-                # 暂无到期内容：短暂休眠而非阻塞到下个时刻，以便及时发现 END 或断开。
+                # Nothing due yet: sleep briefly instead of blocking until the next moment, so END or a disconnect is noticed in time.
                 if not channel.has_data():
                     empty_since = time.monotonic()
                     empty_threshold = 0.5 if getattr(self, "session_state", None) == SessionState.RECOVERING else 0.3
-                    # 先等待正常的块间到达，再判定断流。
+                    # First wait for normal inter-chunk arrival, then declare a stream outage.
                     while not channel.audio_pending() and self.media_filter != "video" and (time.monotonic() - empty_since < empty_threshold):
                         time.sleep(0.005)
 
                     if not channel.audio_pending() and self.media_filter != "video":
-                        # 持续无数据：设备停留在提示画面。
+                        # No data for a sustained period: the device stays on the notice screen.
                         if not hold_on_notice(empty_since):
                             return
                     else:
@@ -806,18 +806,18 @@ class AVServer:
                     window_dropped = 0
                 else:
                     time.sleep(0.005)
-            # 每秒决策一次，依据刚结束的窗口；窗口须长到容纳数帧，又短到能在设备放弃前多次决策。
+            # One decision per second, based on the window that just ended; the window must be long enough to hold several frames and short enough to decide several times before the device gives up.
             now = time.monotonic()
             if now - window_started >= 1.0:
-                # 先判断源是否仍在产出，再通知控制器：源停止与发送快于链路读数相同而应对相反。
-                # 替身频道可能没有 source_state，缺省视为 FLOWING。
+                # First decide whether the source is still producing, then notify the controller: a stopped source and sending faster than the link reading are the same reading but call for opposite responses.
+                # Stand-in channels may have no source_state; treat that as FLOWING.
                 if hasattr(channel, "source_state"):
                     source = channel.source_state(
                         queue_over_bound=len(channel.video) >= channel.video.maxlen)
                 else:
                     source = SourceState.FLOWING
-                # 仅用于周期报告，不作为控制器的总开关：停止的源仍可能有排队内容，
-                # 其写入仍是下游容量的有效证据。
+                # Used only for the periodic report, not as the controller's master switch: a stopped source may still have queued content,
+                # whose writes are still valid evidence of downstream capacity.
                 self._last_source_state = source
                 if getattr(self, "session_state", None) != SessionState.RECOVERING:
                     before = controller.rate
@@ -839,13 +839,13 @@ class AVServer:
                 self.logger(
                     f"live t={now-origin:6.1f}s fps={fps} "
                     f"rate={controller.rate // 1000}kB/s ({controller.reason}) source={getattr(self, '_last_source_state', '?')} "
-                    # 画面与声音内容时钟在配对点的偏差；a_lag、v_lag 只是队列深度。
+                    # Offset between the picture and sound content clocks at the pairing point; a_lag and v_lag are only queue depths.
                     f"clock=({channel.session_clock.diagnostics()}) "
-                    # 对齐所用的基准；getattr 防止报告本身结束会话（测试替身没有 timeline）。
+                    # Reference used for alignment; getattr keeps the report itself from ending the session (test stand-ins have no timeline).
                     f"basis=({getattr(getattr(channel, 'timeline', None), 'basis', None) or 'none'}) "
                     f"audio_q={len(channel.audio):4d} "
                     f"video_q={len(channel.video):4d} "
-                    # 下一个包落后直播的内容秒数，音画两者应一致。
+                    # How many content seconds the next packet lags the live edge; audio and video should agree.
                     f"a_lag={len(channel.audio) * AUDIO_CHUNK_MS / 1000:5.1f}s "
                     f"v_lag={channel.picture_lag_s():5.1f}s "
                     f"lookahead_ms={audio_lookahead_ms:6.0f} "
@@ -862,7 +862,7 @@ class AVServer:
                 last_audio, last_video = self.audio_sent, self.video_sent
                 max_send_gap = 0.0
                 busy_us = 0.0
-        # 服务端停止是正常结束，不是流故障。
+        # A server-side stop is a normal ending, not a stream fault.
         if self.stop.is_set():
             return
         raise TimeoutError("live session cancelled")
@@ -872,7 +872,7 @@ class AVServer:
         hello = receive_packet(connection, expected_session=0)
         self.phase = "authenticate"
         authenticate(hello, self.token)
-        # 设备按名选择频道，换频道即新连接；名称缺失或不在表内时回退到 --channel 指定的默认频道。
+        # The device selects a channel by name and a channel switch is a new connection; a missing name or one not in the table falls back to the default channel given by --channel.
         requested = json_object(hello.payload).get("channel")
         if isinstance(requested, str) and requested in CHANNELS:
             channel_id = requested
@@ -881,7 +881,7 @@ class AVServer:
         self._live_session(connection, channel_id)
 
 def print_where_to_connect(bind: str, port: int, token: bytes | None) -> None:
-    """启动后最后打印的内容：先给设备应填的地址，再给两条提示。"""
+    """Last thing printed at startup: first the address the device should be given, then two notes."""
     shown = bind
     if bind == WILDCARD_BIND:
         detected = netident.lan_address()
@@ -889,16 +889,16 @@ def print_where_to_connect(bind: str, port: int, token: bytes | None) -> None:
     for line in netident.describe(shown, port):
         print(line, flush=True)
 
-    # 无令牌时同网段设备均可收看，提示之。
+    # Without a token, any device on the same subnet can watch; say so.
     if token is None:
-        print("提示：本网络上的其他设备也能收看这台电脑转发的频道。", flush=True)
+        print("Note: other devices on this network can also watch the channels relayed by this computer.", flush=True)
 
-    # 关闭窗口即停止服务；窗口看起来像日志，用户不易联想到。
-    print("提示：关掉这个窗口，服务就停止了，电视会中断。", flush=True)
+    # Closing the window stops the service; the window looks like a log, so users rarely connect the two.
+    print("Note: closing this window stops the service and the TV will be interrupted.", flush=True)
 
 
 def main(argv: list[str] | None = None) -> int:
-    # 输出固定为 UTF-8：管道下默认取本地编码（Windows 中文为 GBK），log_stamp 按 UTF-8 解码会乱码。
+    # Output is fixed to UTF-8: under a pipe the default is the local encoding (GBK on Chinese Windows), and log_stamp decoding it as UTF-8 would garble.
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__)
@@ -906,7 +906,7 @@ def main(argv: list[str] | None = None) -> int:
     live_parser = commands.add_parser("live", help="transcode one allowlisted public channel in real time")
     live_parser.add_argument("--channel", required=True, choices=sorted(CHANNELS))
     live_parser.add_argument("--ffmpeg", default="ffmpeg")
-    # 仅诊断用：关闭一路以判断是画面还是声音的问题。
+    # For diagnostics only: turn off one stream to tell whether the problem is picture or sound.
     live_parser.add_argument("--media", choices=("both", "audio", "video"),
                              default="both")
     live_parser.add_argument("--bind", default=WILDCARD_BIND,
@@ -921,32 +921,32 @@ def main(argv: list[str] | None = None) -> int:
         server.ffmpeg = args.ffmpeg
         server.media_filter = "" if args.media == "both" else args.media
         server.channel_name = args.channel
-        # 信号处理器须设置接入循环实际读取的标志。
+        # The signal handler must set the flag the accept loop actually reads.
         for signum in (signal.SIGINT, signal.SIGTERM):
             signal.signal(signum, lambda *_: server.stop.set())
-        # 每个设备连接启动独立转码进程；ffmpeg 退出只结束该会话，接入循环无需重启。
+        # Each device connection starts its own transcoder process; an ffmpeg exit ends only that session, and the accept loop needs no restart.
         print_where_to_connect(args.bind, args.port, token)
         server.serve()
-        # 仅在出现异常时打印计数；握手期放弃的连接不计，换频道每次都会产生一个。
+        # Print the counters only when something went wrong; connections abandoned during the handshake are not counted, and every channel switch produces one.
         if server.failed or server.rejected or server.dropped_video:
-            print(f"已停止。出错 {server.failed} 次，拒绝 {server.rejected} 次，"
-                  f"丢帧 {server.dropped_video} 次。", flush=True)
+            print(f"Stopped. Errors: {server.failed}, rejected: {server.rejected}, "
+                  f"dropped frames: {server.dropped_video}.", flush=True)
         else:
-            print("已停止。", flush=True)
+            print("Stopped.", flush=True)
         return 0
     except OSError as error:
-        # 绑定失败与令牌、媒体问题难以区分，端口被占用又像静默无操作；errno 不含路径与凭据。
-        # 用 errno.EADDRINUSE 而非数值：各平台数值不同。
+        # A bind failure is hard to tell from token or media problems, and a busy port looks like a silent no-op; errno contains no paths or credentials.
+        # Use errno.EADDRINUSE rather than a number: the numeric value differs between platforms.
         if error.errno == errno.EADDRINUSE:
-            print("端口 8096 已被占用——多半是上一次的程序还没关干净。", file=sys.stderr)
-            print("把之前的窗口关掉，或重启电脑后再试。", file=sys.stderr)
+            print("Port 8096 is already in use - most likely the previous run has not closed completely.", file=sys.stderr)
+            print("Close the earlier window, or restart the computer and try again.", file=sys.stderr)
         else:
-            print(f"网络端口打不开（errno={error.errno}）。", file=sys.stderr)
+            print(f"Cannot open the network port (errno={error.errno}).", file=sys.stderr)
         return 1
     except Exception:
-        # 子进程错误、路径、环境变量可能含敏感值，不输出。
-        print("程序没能启动。常见原因是 ffmpeg 缺失或频道表有问题；", file=sys.stderr)
-        print("把上面最后几行输出发给项目的维护者可以定位。", file=sys.stderr)
+        # Subprocess errors, paths and environment variables may contain sensitive values and are not printed.
+        print("The program could not start. Common causes: ffmpeg is missing or the channel list has a problem;", file=sys.stderr)
+        print("send the last few lines of output above to the project maintainer to locate it.", file=sys.stderr)
         if os.environ.get("TV_TRACEBACK") == "1":
             import traceback
             traceback.print_exc()

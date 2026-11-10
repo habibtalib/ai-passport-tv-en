@@ -1,3 +1,3 @@
 # Format: channel_id | Display name | HTTP/HTTPS URL [| User-Agent]
-# === 央视频道（CCTV 1~17 序列）===
+# === CCTV channels (CCTV 1-17 series) ===
 ch000 | CCTV1 | http://101.35.240.114:88/live.php?id=CCTV1 | AptvPlayer-UA

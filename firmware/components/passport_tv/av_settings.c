@@ -5,7 +5,7 @@ const char *av_quality_id(unsigned quality) {
     return ids[quality<AV_QUALITY_COUNT?quality:AV_QUALITY_DEFAULT];
 }
 const char *av_quality_name(unsigned quality) {
-    static const char *const names[]={"流畅","标清","超清"};
+    static const char *const names[]={"Smooth","Standard","Ultra"};
     return names[quality<AV_QUALITY_COUNT?quality:AV_QUALITY_DEFAULT];
 }
 

@@ -1,11 +1,11 @@
-"""自动识别设备应填写的服务端地址。
+"""Auto-detect the server address the device should be given.
 
-给出两种形式：
+Two forms are offered:
 
-* 名称（`<主机名>.local`）：填到设备上。路由器重新分配 IP 后名称仍然有效。
-* 数字地址（`192.168.1.20`）：套接字绑定需要字面地址，不能监听名称。
+* Name (`<hostname>.local`): enter this on the device. It stays valid after the router reassigns the IP.
+* Numeric address (`192.168.1.20`): socket binding needs a literal address; it cannot listen on a name.
 
-名称查询方式因系统而异，逐一尝试；失败就报告"名称未知"，不猜测，错误的名称比没有名称更糟。
+Name lookup differs per OS, so each way is tried in turn; on failure it reports "name unknown" and never guesses, since a wrong name is worse than none.
 """
 
 from __future__ import annotations
@@ -14,19 +14,20 @@ import platform
 import socket
 import subprocess
 
-# 标准库无法枚举网卡。把 UDP 套接字 connect 到远端地址不会发包，但内核会选出出口网卡，
-# 取套接字本端地址即可。优先用保留的文档地址，即使误发也不会到达任何主机。
+# The standard library cannot enumerate network interfaces. Connecting a UDP socket to a remote
+# address sends no packet, but the kernel picks the outgoing interface, so the socket's local
+# address is enough. Reserved documentation addresses are preferred so a stray packet reaches no host.
 _PROBE_ADDRESSES = (
     ("192.0.2.1", 9),        # RFC 5737 TEST-NET-1
     ("198.51.100.1", 9),     # RFC 5737 TEST-NET-2
-    ("8.8.8.8", 53),         # 最后兜底：总有路由的地址
+    ("8.8.8.8", 53),         # last resort: an address that always has a route
 )
 
 
 def lan_address() -> str | None:
-    """同一网络中的设备访问本机所用的 IPv4 地址；没有任何出口路由时返回 None。
+    """IPv4 address that devices on the same network use to reach this machine; None if there is no outgoing route.
 
-    不用回环地址代替：127.0.0.1 只有本机能访问，填到设备上会表现为服务端故障。
+    Loopback is not used as a substitute: 127.0.0.1 is reachable only from this machine, and entering it on the device looks like a server fault.
     """
     for address, port in _PROBE_ADDRESSES:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -38,16 +39,16 @@ def lan_address() -> str | None:
             continue
         finally:
             sock.close()
-        # 回环地址说明探测没有得到可用结果，继续尝试下一个。
+        # A loopback address means the probe found nothing usable; try the next one.
         if found and not found.startswith("127."):
             return found
     return None
 
 
 def _run(command: list[str]) -> str | None:
-    """返回命令输出的第一行，失败返回 None，不抛异常。
+    """Return the first line of the command's output, or None on failure; never raises.
 
-    显式指定 UTF-8：机器名可能含非 ASCII 字符，按平台默认编码读取可能在读取线程中抛异常。
+    UTF-8 is set explicitly: the machine name may contain non-ASCII characters, and reading with the platform default encoding could raise in the reader thread.
     """
     try:
         done = subprocess.run(command, capture_output=True, text=True,
@@ -61,13 +62,13 @@ def _run(command: list[str]) -> str | None:
 
 
 def local_name() -> str | None:
-    """本机的 `.local` 名称，无法确定时返回 None。
+    """This machine's `.local` name, or None if it cannot be determined.
 
-    * macOS：`scutil` 给出 Bonjour 名称。
-    * Linux/BSD：`avahi-resolve` 向运行中的 mDNS 服务询问，没有 avahi 就没有名称。
-    * Windows：取环境变量中的计算机名，系统以 `<名称>.local` 发布 mDNS。
+    * macOS: `scutil` gives the Bonjour name.
+    * Linux/BSD: `avahi-resolve` asks the running mDNS service; without avahi there is no name.
+    * Windows: take the computer name from the environment; the system publishes mDNS as `<name>.local`.
 
-    只返回带 `.local` 后缀的名称；裸主机名在家用网络中无法解析。
+    Only names with the `.local` suffix are returned; a bare hostname does not resolve on home networks.
     """
     system = platform.system()
 
@@ -80,7 +81,7 @@ def local_name() -> str | None:
         name = os.environ.get("COMPUTERNAME")
         return f"{name}.local" if name else None
 
-    # Linux、BSD 及其他运行 mDNS 服务的系统。
+    # Linux, BSD and other systems running an mDNS service.
     name = _run(["avahi-resolve", "--address", "-n", socket.gethostname()])
     if name:
         return name.rstrip(".") + ".local" if not name.endswith(".local") else name
@@ -88,39 +89,39 @@ def local_name() -> str | None:
 
 
 def describe(address: str | None = None, port: int = 8096) -> list[str]:
-    """启动时打印的地址提示行。
+    """Address hint lines printed at startup.
 
-    `address` 为作为备用显示的局域网地址；调用方没找到时为 None（例如监听所有网卡且没有私有地址）。
+    `address` is the LAN address shown as a fallback; None when the caller found none (e.g. listening on all interfaces with no private address).
     """
     name = local_name()
 
-    # 不打印监听地址：设备填的是名称，数字地址只在名称失效时作为备用出现。
+    # The listen address is not printed: the device is given the name, and the numeric address appears only as a fallback when the name fails.
     lines: list[str] = []
     if not address:
         if name:
-            lines.append("设备上要填的地址：")
+            lines.append("Address to enter on the device:")
             lines.append(f"    {name}:{port}")
-            lines.append(f"（连不上就换成这台电脑的局域网地址:{port}）")
+            lines.append(f"(if it cannot connect, use this computer's LAN address:{port})")
         else:
-            lines.append(f"没有识别出这台电脑的局域网地址。设备上填它的局域网地址:{port}。")
+            lines.append(f"Could not detect this computer's LAN address. Enter its LAN address on the device:{port}.")
         lines.append("")
         return lines
 
-    # 绑定到回环地址时局域网设备无法连接，下面的填写建议不适用，改为说明原因。
+    # Devices on the LAN cannot connect to a loopback binding, so the entry advice below does not apply; explain why instead.
     if address.startswith("127."):
-        lines.append("这是一个本机地址（127 开头），只有这台电脑自己能访问，")
-        lines.append("局域网里的设备连接不上。")
+        lines.append("This is a local-only address (starts with 127); only this computer can reach it,")
+        lines.append("so devices on the LAN cannot connect.")
         return lines
 
-    # 只给一个待填的值，下面至多一行备用说明。
+    # Give a single value to enter, with at most one fallback line below.
     if name:
-        lines.append("设备上要填的地址：")
+        lines.append("Address to enter on the device:")
         lines.append(f"    {name}:{port}")
-        lines.append(f"（连不上就换成 {address}:{port}）")
+        lines.append(f"(if it cannot connect, use {address}:{port})")
     else:
-        lines.append("设备上要填的地址：")
+        lines.append("Address to enter on the device:")
         lines.append(f"    {address}:{port}")
-        lines.append("（读不到这台电脑的名字；路由器换 IP 后要重新填一次）")
-    # 末尾空行，把后续输出与填写说明隔开。
+        lines.append("(this computer's name could not be read; re-enter it after the router changes the IP)")
+    # Trailing blank line separates later output from the entry instructions.
     lines.append("")
     return lines

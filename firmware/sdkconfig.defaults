@@ -1,19 +1,19 @@
-# --- 目标芯片 ---
+# --- Target chip ---
 CONFIG_IDF_TARGET="esp32c3"
-# 注:ESP32-C3 无 PSRAM,故不设 CONFIG_SPIRAM。
+# Note: ESP32-C3 has no PSRAM, so CONFIG_SPIRAM is not set.
 
 # --- Flash ---
-# FoloToy AI Passport 当前产品/固件基线使用 8MB Flash。
+# The current FoloToy AI Passport product/firmware baseline uses 8MB Flash.
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
-# 固定 8MB 镜像头，关闭 detect，便于 idf.py merge-bin。
+# Fix the image header at 8MB and disable detect, to make idf.py merge-bin work.
 CONFIG_ESPTOOLPY_HEADER_FLASHSIZE_UPDATE=n
-# 默认模板只保留 NVS、PHY data 和占用剩余空间的 factory app；用户可按需修改。
+# The default template keeps only NVS, PHY data and a factory app that takes the remaining space; change as needed.
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_PARTITION_TABLE_FILENAME="partitions.csv"
 
-# --- 控制台:USB-Serial-JTAG(C3 原生 USB,GPIO18/19)---
-# 不用 UART0:其默认 TX=GPIO21 与本板背光引脚冲突。
+# --- Console: USB-Serial-JTAG (C3 native USB, GPIO18/19) ---
+# UART0 is not used: its default TX=GPIO21 conflicts with this board's backlight pin.
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
 
@@ -25,8 +25,8 @@ CONFIG_LV_DEF_REFR_PERIOD=20
 CONFIG_LV_FONT_MONTSERRAT_10=y
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_20=y
-# LVGL 内置 malloc 池大小(KB)。它是独立静态区、不与系统堆共享,配大了会白白占用 RAM。
-# 本 demo UI 简单,24KB 足够;若自建复杂界面出现绘制卡死/看门狗,调大此值。
+# LVGL built-in malloc pool size (KB). It is a separate static region not shared with the system heap, so setting it too large wastes RAM.
+# This demo UI is simple and 24KB is enough; if a complex custom UI hangs while drawing or trips the watchdog, increase this value.
 CONFIG_LV_MEM_SIZE_KILOBYTES=36
 # Fresh-config builds resolved this to empty, which breaks LVGL includes;
 # keep it aligned with the tracked sdkconfig value.
@@ -34,7 +34,7 @@ CONFIG_LV_ASSERT_HANDLER_INCLUDE="assert.h"
 CONFIG_LV_USE_TJPGD=y
 CONFIG_LV_USE_QRCODE=y
 
-# --- 系统 ---
+# --- System ---
 CONFIG_FREERTOS_HZ=1000
 # CONFIG_COMPILER_OPTIMIZATION_PERF is not set
 

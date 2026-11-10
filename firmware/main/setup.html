@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Passport TV · 连接设置</title><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Passport TV · Connection setup</title><style>
 :root{color-scheme:dark;--bg:#10151c;--panel:#1b2430;--ink:#f5f3ed;--muted:#b2bcc7;--accent:#ffc168}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 system-ui,-apple-system,sans-serif}main{max-width:480px;margin:auto;padding:32px 22px 48px}header{border-bottom:1px solid #38414e;padding-bottom:20px}small,.hint{color:var(--muted)}.brand{color:var(--accent);font:700 14px monospace;letter-spacing:3px}h1{font-size:28px;line-height:1.3;margin:16px 0 8px}p{margin:8px 0}.step{display:inline-block;font-size:12px;border:1px solid #596573;border-radius:5px;padding:2px 8px;margin-top:12px}label{display:block;font-weight:600;margin-top:20px}input,select,button{width:100%;font:inherit;min-height:48px;border-radius:8px;padding:11px 12px;margin-top:7px}input,select{background:var(--panel);color:var(--ink);border:1px solid #647081}input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}button{background:var(--accent);color:#201508;border:0;font-weight:700;cursor:pointer}button:disabled{opacity:.5;cursor:wait}.secondary{background:transparent;color:var(--accent);border:1px solid #647081}.inline{display:flex;align-items:center;gap:9px;font-size:14px;font-weight:400;margin-top:8px}.inline input{width:18px;min-height:18px;margin:0}.hint{font-size:13px;margin-top:6px}details{margin-top:22px}summary{cursor:pointer;color:var(--muted)}#status{position:sticky;top:8px;z-index:1;padding:14px;background:var(--panel);border-radius:8px;margin:20px 0;min-height:64px}#status[data-error=true]{border:1px solid #ed8f7e}#success{padding:22px 0}#success h2{color:#a6e3b5}footer{font-size:13px;color:var(--muted);margin-top:24px}noscript{color:#ffc168}
 dialog{width:min(440px,calc(100% - 32px));max-height:calc(100dvh - 32px);overflow:hidden;background:var(--panel);color:var(--ink);border:1px solid #647081;border-radius:12px;padding:0}dialog::backdrop{background:#000a}#cropForm{display:flex;flex-direction:column;max-height:calc(100dvh - 34px)}.crop-body{min-height:0;overflow-y:auto;padding:20px 24px 12px}#cropFields{border:0;padding:0;margin:0;min-width:0}#cropCanvas{display:block;width:min(264px,100%);height:auto;margin:16px auto;touch-action:none;cursor:grab;border-radius:8px}#cropCanvas:active{cursor:grabbing}#cropCanvas:focus-visible{outline:2px solid var(--accent);outline-offset:3px}#avatarZoom{width:100%;padding:0;accent-color:var(--accent)}#zoomValue{float:right}.crop-preview{display:flex;align-items:center;gap:16px;color:var(--muted)}#cropPreview{width:88px;height:88px;border-radius:8px}#cropError{color:#ed8f7e;min-height:26px}.crop-actions{display:flex;flex-shrink:0;gap:12px;border-top:1px solid #38414e;padding:12px 24px max(12px,env(safe-area-inset-bottom))}.crop-actions button{margin-top:0}
 
@@ -21,63 +21,63 @@ input[type=file]{font-size:12px;min-height:42px;padding:7px;margin-top:8px;borde
 @media(min-width:560px){.identity-fields{grid-template-columns:.8fr 1.2fr}.card-editor{grid-template-columns:180px 1fr;gap:24px}.card-controls{gap:14px}.card-controls select{font-size:14px}}
 @media(max-width:360px){main{padding:16px}.card-editor{gap:10px}.steps{font-size:11px}.profile-group summary span{font-size:11px}}
 .network-row{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;background:var(--panel);color:var(--ink);border:1px solid #38414e;font-weight:400;margin-top:6px;min-height:50px}.network-row[aria-pressed=true]{border-color:var(--accent);background:#30291e}.network-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.network-strength{font-size:12px;color:var(--muted);white-space:nowrap}#networkList{display:grid;gap:7px;max-height:300px;overflow-y:auto;margin-top:8px}.network-row{margin-top:0}</style></head><body><main>
-<header><p class="eyebrow">PASSPORT TV</p><ol class="steps"><li id="wifiStep">1 连接网络</li><li id="tvStep">2 电视连接</li><li>3 完成</li></ol>
-<p id="stepLabel" class="step">Step 1 · 网络</p><h1 id="title">先连上网络。</h1><p class="hint">仅支持 2.4 GHz Wi-Fi。已保存的网络会自动连接。</p></header>
+<header><p class="eyebrow">PASSPORT TV</p><ol class="steps"><li id="wifiStep">1 Connect network</li><li id="tvStep">2 TV connection</li><li>3 Done</li></ol>
+<p id="stepLabel" class="step">Step 1 · Network</p><h1 id="title">Connect to a network first.</h1><p class="hint">2.4 GHz Wi-Fi only. Saved networks connect automatically.</p></header>
 <form id="form"><fieldset id="networkFields" disabled style="border:0;padding:0;margin:0">
-<div class="field-heading"><label >附近的 Wi-Fi</label><button class="text-button" id="scan" type="button">刷新列表</button></div>
-<div id="networkList" role="group" aria-label="附近的 Wi-Fi" aria-describedby="networkCount"></div><p id="networkCount" class="hint">正在查找附近的网络…</p>
-<details id="manualFields"><summary>找不到网络？手动输入</summary><label for="ssid">Wi-Fi 名称</label><input id="ssid" autocomplete="off" spellcheck="false" maxlength="32" placeholder="输入网络名称"></details>
-<label for="password">Wi-Fi 密码</label><div class="password-field"><input id="password" type="password" autocomplete="new-password" maxlength="63" placeholder="请输入密码" aria-describedby="passwordHint"><label class="inline"><input id="showPassword" type="checkbox">显示</label></div><p id="passwordHint" class="hint">密码中的空格会原样保留，无密码可留空。</p>
-<button id="saveProfile" class="secondary" type="button" hidden>修改个人形象</button>
+<div class="field-heading"><label >Nearby Wi-Fi</label><button class="text-button" id="scan" type="button">Refresh list</button></div>
+<div id="networkList" role="group" aria-label="Nearby Wi-Fi" aria-describedby="networkCount"></div><p id="networkCount" class="hint">Looking for nearby networks…</p>
+<details id="manualFields"><summary>Can't find the network? Enter it manually</summary><label for="ssid">Wi-Fi name</label><input id="ssid" autocomplete="off" spellcheck="false" maxlength="32" placeholder="Enter network name"></details>
+<label for="password">Wi-Fi password</label><div class="password-field"><input id="password" type="password" autocomplete="new-password" maxlength="63" placeholder="Enter password" aria-describedby="passwordHint"><label class="inline"><input id="showPassword" type="checkbox">Show</label></div><p id="passwordHint" class="hint">Spaces in the password are kept as typed. Leave blank if there is no password.</p>
+<button id="saveProfile" class="secondary" type="button" hidden>Edit profile</button>
 </fieldset><section id="tvFields" hidden>
-<label for="host">电视服务器（主机名或 HTTP(S) 地址）</label><input id="host" maxlength="128" placeholder="tv.example.com 或 https://tv.example.com" autocomplete="off" spellcheck="false"><p id="serverHint" class="hint">填写服务器主机名或地址；主机名使用下方端口。</p>
-<label for="port">端口</label><input id="port" type="number" min="1" max="65535" value="10745">
-<label for="token">配对码</label><input id="token" type="text" maxlength="4" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="输入 4 位字母数字码"><p class="hint">已配对的同一服务器可留空继续使用。</p>
-<button id="back" type="button" class="secondary">修改网络</button></section>
-<p id="status" role="status"></p><button id="connect" type="submit">保存并连接网络</button></form>
-<section id="success" hidden><h2>连接设置已完成</h2><p>设备正在进入电视。</p></section></main><script>
+<label for="host">TV server (hostname or HTTP(S) address)</label><input id="host" maxlength="128" placeholder="tv.example.com or https://tv.example.com" autocomplete="off" spellcheck="false"><p id="serverHint" class="hint">Enter the server hostname or address; a hostname uses the port below.</p>
+<label for="port">Port</label><input id="port" type="number" min="1" max="65535" value="10745">
+<label for="token">Pairing code</label><input id="token" type="text" maxlength="4" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="Enter 4-character code"><p class="hint">Leave blank to keep using the same already-paired server.</p>
+<button id="back" type="button" class="secondary">Change network</button></section>
+<p id="status" role="status"></p><button id="connect" type="submit">Save and connect</button></form>
+<section id="success" hidden><h2>Connection setup complete</h2><p>The device is starting TV.</p></section></main><script>
 const $=id=>document.getElementById(id),enc=new TextEncoder(),dec=new TextDecoder();
-const errors={pairing:'配对未完成，请检查配对码、服务器和网络后重试。',password:'Wi-Fi 密码不正确，或不符合长度要求。',wifi:'Wi-Fi 连接失败，请检查名称、密码与信号。',fields:'请检查电视地址、端口和配对码。',network_first:'请先连接 Wi-Fi。',storage:'保存失败，请重试。',busy:'正在连接，请稍候。'};
+const errors={pairing:'Pairing failed. Check the code, server and network, then retry.',password:'Wi-Fi password is wrong or has an invalid length.',wifi:'Wi-Fi connection failed. Check the name, password and signal.',fields:'Check the TV address, port and pairing code.',network_first:'Connect to Wi-Fi first.',storage:'Save failed. Please retry.',busy:'Connecting, please wait.'};
 let nearbyNetworks=[],step=1,busy=false,finished=false,pendingFinish=false,stateLoaded=false,savedOrigin='',defaultOrigin='',canRetain=false;
 function originOf(input,port){input=input.trim();if(!input)input=defaultOrigin;if(!input||input.length>128)throw Error(errors.fields);const explicit=/^https?:\/\//.test(input);if(!explicit)input='http://'+input+(input.includes(':')?'':':'+port);if(!/^https?:\/\/[A-Za-z0-9.-]+(?::[0-9]+)?$/.test(input))throw Error(errors.fields);const u=new URL(input);if(!u.hostname.split('.').every(x=>/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/.test(x))||u.port==='0')throw Error(errors.fields);return u.origin;}
 function message(text,error=false){$('status').textContent=text;$('status').dataset.error=String(error)}
-function networkValues(){if(!$('ssid').value){$('manualFields').open=true;$('ssid').focus()}const ssid=enc.encode($('ssid').value),password=enc.encode($('password').value);if(!ssid.length||ssid.length>32)throw new Error('Wi-Fi 名称需为 1–32 个 UTF-8 字节。');if(password.length&&(password.length<8||password.length>63))throw new Error(errors.password);return {ssid,password}}
+function networkValues(){if(!$('ssid').value){$('manualFields').open=true;$('ssid').focus()}const ssid=enc.encode($('ssid').value),password=enc.encode($('password').value);if(!ssid.length||ssid.length>32)throw new Error('Wi-Fi name must be 1-32 UTF-8 bytes.');if(password.length&&(password.length<8||password.length>63))throw new Error(errors.password);return {ssid,password}}
 function renderNetworks(){
  const list=$('networkList');list.replaceChildren();
  const selected=$('ssid').value;
  for(const item of nearbyNetworks){
   const button=document.createElement('button');button.type='button';button.className='network-row';button.dataset.ssid=item.ssid;button.setAttribute('aria-pressed',String(item.ssid===selected));
   const name=document.createElement('span');name.className='network-name';name.textContent=item.ssid;
-  const signal=document.createElement('span');signal.className='network-strength';signal.textContent=(item.rssi>=-55?'强':item.rssi>=-70?'良好':'较弱')+' · '+item.rssi+' dBm'+(item.ssid===selected?' ✓':'');
+  const signal=document.createElement('span');signal.className='network-strength';signal.textContent=(item.rssi>=-55?'Strong':item.rssi>=-70?'Good':'Weak')+' · '+item.rssi+' dBm'+(item.ssid===selected?' ✓':'');
   button.append(name,signal);button.onclick=()=>{if($('ssid').value!==item.ssid)$('password').value='';$('ssid').value=item.ssid;$('manualFields').open=false;renderNetworks();$('password').focus()};list.append(button);
  }
 }
 function networks(items){
  const unique=new Map();for(const item of items){const ssid=dec.decode(item.ssid);if(ssid&&(!unique.has(ssid)||item.rssi>unique.get(ssid).rssi))unique.set(ssid,{ssid,rssi:item.rssi})}
  nearbyNetworks=Array.from(unique.values()).sort((a,b)=>b.rssi-a.rssi||a.ssid.localeCompare(b.ssid));renderNetworks();
- $('networkCount').textContent=nearbyNetworks.length?'已找到 '+nearbyNetworks.length+' 个网络 · 按信号强度排序 · 仅支持 2.4 GHz':'未找到网络，可刷新列表或手动输入。';
+ $('networkCount').textContent=nearbyNetworks.length?'Found '+nearbyNetworks.length+' networks · sorted by signal · 2.4 GHz only':'No networks found. Refresh the list or enter one manually.';
 }
 
-async function transport(path,body){const options={cache:'no-store'};if(body!==undefined){options.method='POST';options.headers={'Content-Type':'application/json'};if(body!==null)options.body=JSON.stringify(body)}const r=await fetch(path,options);if(!r.ok)throw Error(errors[(await r.text()).trim()]||'设备暂时无法处理，请重试。');return r.json()}
-function show(value){step=value;$('networkFields').hidden=value!==1;$('tvFields').hidden=value!==2;$('stepLabel').textContent=value===1?'Step 1 · 网络':'Step 2 · 电视';$('title').textContent=value===1?'先连上网络。':'连接电视服务。';$('connect').textContent=value===1?'保存并连接网络':'保存并开始观看'}
+async function transport(path,body){const options={cache:'no-store'};if(body!==undefined){options.method='POST';options.headers={'Content-Type':'application/json'};if(body!==null)options.body=JSON.stringify(body)}const r=await fetch(path,options);if(!r.ok)throw Error(errors[(await r.text()).trim()]||'The device cannot handle this right now. Please retry.');return r.json()}
+function show(value){step=value;$('networkFields').hidden=value!==1;$('tvFields').hidden=value!==2;$('stepLabel').textContent=value===1?'Step 1 · Network':'Step 2 · TV';$('title').textContent=value===1?'Connect to a network first.':'Connect to the TV service.';$('connect').textContent=value===1?'Save and connect':'Save and start watching'}
 $('back').onclick=()=>show(1);$('showPassword').onchange=()=>{$('password').type=$('showPassword').checked?'text':'password'};
-$('scan').onclick=async()=>{try{await transport('/networks',null);message('正在查找附近的 Wi-Fi…')}catch(e){message(e.message,true)}};
+$('scan').onclick=async()=>{try{await transport('/networks',null);message('Looking for nearby Wi-Fi…')}catch(e){message(e.message,true)}};
 $('form').onsubmit=async event=>{event.preventDefault();if(busy)return;busy=true;$('connect').disabled=true;
-try{if(step===1){delete $('back').dataset.manual;const {ssid,password}=networkValues();await transport('/connect',{ssid:dec.decode(ssid),password:dec.decode(password)});message('正在连接 Wi-Fi，请保持设备热点连接。')}
-else{if(!pendingFinish){if(!stateLoaded)throw Error('正在读取设备设置，请稍候。');const host=$('host').value.trim(),port=Number($('port').value),code=$('token').value.trim().toUpperCase();if(!Number.isInteger(port)||port<1||port>65535)throw Error(errors.fields);const origin=originOf(host,port);if(code?!/^[A-Z0-9]{4}$/.test(code):!(canRetain&&origin===savedOrigin))throw Error('请输入 4 位配对码；仅同一服务器可留空保留。');await transport('/configure',{host,port,code});pendingFinish=true;}await transport('/finish',{});finished=true;$('password').value='';$('token').value='';$('form').hidden=true;$('success').hidden=false;message('已保存，设备正在播放。')}}
+try{if(step===1){delete $('back').dataset.manual;const {ssid,password}=networkValues();await transport('/connect',{ssid:dec.decode(ssid),password:dec.decode(password)});message('Connecting to Wi-Fi. Stay connected to the device hotspot.')}
+else{if(!pendingFinish){if(!stateLoaded)throw Error('Reading device settings, please wait.');const host=$('host').value.trim(),port=Number($('port').value),code=$('token').value.trim().toUpperCase();if(!Number.isInteger(port)||port<1||port>65535)throw Error(errors.fields);const origin=originOf(host,port);if(code?!/^[A-Z0-9]{4}$/.test(code):!(canRetain&&origin===savedOrigin))throw Error('Enter the 4-character pairing code; only the same server can keep it blank.');await transport('/configure',{host,port,code});pendingFinish=true;}await transport('/finish',{});finished=true;$('password').value='';$('token').value='';$('form').hidden=true;$('success').hidden=false;message('Saved. The device is starting playback.')}}
 catch(e){message(e.message,true)}finally{busy=false;$('connect').disabled=false}};
 async function poll(){if(finished)return;try{const [state,list]=await Promise.all([transport('/status'),transport('/networks')]);
 $('networkFields').disabled=busy||state.phase==='connecting';$('connect').disabled=busy||state.phase==='connecting';
 if(state.phase==='saved')pendingFinish=true;defaultOrigin=state.default_origin||'';stateLoaded=true;
 if(!$('host').dataset.touched)$('host').value=state.host||'';if(state.port&&!$('port').dataset.touched)$('port').value=state.port;
 try{savedOrigin=originOf(state.host||'',state.port||10745)}catch{savedOrigin=''}canRetain=Boolean(state.has_token&&savedOrigin);
-$('serverHint').textContent=defaultOrigin?'留空使用默认服务 '+defaultOrigin+'；主机名使用下方端口。':'填写服务器主机名或地址；主机名使用下方端口。';
-$('token').placeholder=canRetain?'同一服务器留空保留配对':'输入 4 位字母数字码';
+$('serverHint').textContent=defaultOrigin?'Leave blank to use the default service '+defaultOrigin+'; a hostname uses the port below.':'Enter the server hostname or address; a hostname uses the port below.';
+$('token').placeholder=canRetain?'Leave blank to keep pairing on the same server':'Enter 4-character code';
 if(!nearbyNetworks.length&&state.ssid)$('ssid').value=state.ssid;
 if(!list.scanning)networks(list.entries.map(item=>({ssid:Uint8Array.from(item.ssid_hex.match(/../g)||[],x=>parseInt(x,16)),rssi:item.rssi})));
-if(state.phase==='network_saved'&&step===1&&!$('back').dataset.manual){show(2);$('password').value='';message('Wi-Fi 已连接，请确认电视地址。')}
-if(state.phase==='connecting')message('正在连接 Wi-Fi…');if(state.phase==='error')message(errors[state.error]||'连接失败，请重试。',true);
-}catch(e){message('请保持连接设备热点，正在查询结果。',true)}finally{if(!finished)setTimeout(poll,1000)}}
+if(state.phase==='network_saved'&&step===1&&!$('back').dataset.manual){show(2);$('password').value='';message('Wi-Fi connected. Confirm the TV address.')}
+if(state.phase==='connecting')message('Connecting to Wi-Fi…');if(state.phase==='error')message(errors[state.error]||'Connection failed. Please retry.',true);
+}catch(e){message('Stay connected to the device hotspot; checking the result.',true)}finally{if(!finished)setTimeout(poll,1000)}}
 $('back').addEventListener('click',()=>{$('back').dataset.manual='1'});$('port').oninput=()=>{$('port').dataset.touched='1'};
 $('host').oninput=()=>{$('host').dataset.touched='1'};
 poll();

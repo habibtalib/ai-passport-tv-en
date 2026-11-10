@@ -1,5 +1,5 @@
 // components/bsp/include/bsp_display.h
-// ST7789P3 240x320 显示:SPI 面板初始化 + 厂商专属寄存器 + LEDC 背光调光。
+// ST7789P3 240x320 display: SPI panel init + vendor-specific registers + LEDC backlight dimming.
 #pragma once
 
 #include "esp_err.h"
@@ -10,23 +10,23 @@
 // The final LVGL frame is masked to this radius; pixels outside are pure black.
 #define BSP_LVGL_SCREEN_RADIUS 30
 
-// 初始化 SPI 总线、面板、厂商寄存器、背光 LEDC。成功调用可重复；失败会回滚本次
-// 已创建的显示资源，修正故障后可重试。成功后屏幕已上电但内容未定。
+// Initialize the SPI bus, panel, vendor registers and backlight LEDC. Safe to call repeatedly after success; on failure the display resources
+// created by this call are rolled back and it can be retried after the fault is fixed. On success the screen is powered but its content is undefined.
 esp_err_t bsp_display_init(void);
 
-// 取底层面板句柄。想直接 esp_lcd_panel_draw_bitmap 画,或接 LVGL 以外的 GUI 时用。
-// 未初始化返回 NULL。
+// Get the underlying panel handle. Use for direct esp_lcd_panel_draw_bitmap drawing, or for a GUI other than LVGL.
+// Returns NULL if not initialized.
 esp_lcd_panel_handle_t bsp_display_panel(void);
 
-// 取底层 panel io 句柄(LVGL 接入需要)。未初始化返回 NULL。
+// Get the underlying panel io handle (needed to attach LVGL). Returns NULL if not initialized.
 esp_lcd_panel_io_handle_t bsp_display_io(void);
 
-// 背光亮度 0..100(%)。LEDC PWM,0=全灭。
+// Backlight brightness 0..100 (%). LEDC PWM, 0 = fully off.
 void bsp_display_backlight(uint8_t percent);
 
-// deep sleep 专用：关闭显示、让 ST7789 进入 Sleep In，停止背光 PWM，
-// 将 CS/SCLK/MOSI/DC/背光设为安全电平并在 deep sleep 中保持。调用时必须
-// 已阻止 LVGL 刷屏，调用后必须立即进入 deep sleep 或重启。
+// Deep sleep only: turn off the display, put the ST7789 into Sleep In, stop the backlight PWM,
+// set CS/SCLK/MOSI/DC/backlight to safe levels and hold them through deep sleep. LVGL refresh must
+// already be blocked when calling; the caller must immediately enter deep sleep or reboot afterwards.
 esp_err_t bsp_display_prepare_deep_sleep(void);
 
 // ---------------------------------------------------------------------------
@@ -42,19 +42,19 @@ esp_err_t bsp_display_raw_release(void);
 void bsp_display_lvgl_callbacks(const esp_lcd_panel_io_callbacks_t *callbacks, void *ctx);
 
 // ---------------------------------------------------------------------------
-// LVGL 接入(可选层)。必须先 bsp_display_init() 成功后再调。
-// 不想用 LVGL 的开发者可忽略本段,直接用 bsp_display_panel() 自己画。
+// LVGL integration (optional layer). Call only after bsp_display_init() succeeded.
+// Developers who do not want LVGL can ignore this section and draw directly with bsp_display_panel().
 // ---------------------------------------------------------------------------
-// 前向声明:LVGL 里 lv_display_t 是 `typedef struct _lv_display_t lv_display_t;`,
-// 故此处用 struct 形式即可,避免本头文件强行 include lvgl.h。
+// Forward declaration: in LVGL, lv_display_t is `typedef struct _lv_display_t lv_display_t;`,
+// so the struct form is enough here and avoids forcing this header to include lvgl.h.
 struct _lv_display_t;
 
-// 启动 LVGL 与其渲染任务,返回 lv_display_t*。失败返回 NULL；display/回调注册失败
-// 回滚 display 并保留已初始化的 port，后续可重试。port 自身部分初始化失败需重启，
-// 不覆盖依赖中可能尚未退出的任务。首次初始化由单一任务串行调用。
+// Start LVGL and its render task; returns lv_display_t*. Returns NULL on failure; if display/callback registration fails
+// the display is rolled back and the already-initialized port is kept, so it can be retried. A partial failure of the port itself needs a reboot,
+// so as not to overwrite tasks in the dependency that may not have exited yet. The first init is called serially from a single task.
 struct _lv_display_t *bsp_lvgl_init(void);
 
-// LVGL 非线程安全:在【非 LVGL 任务】里操作任何 lv_* 对象前后必须加解锁。
-// LVGL 尚未就绪或超时时 lock 返回 false；只有 lock 成功后才调用 unlock。
+// LVGL is not thread-safe: from any NON-LVGL task, lock before and unlock after touching any lv_* object.
+// lock returns false if LVGL is not ready or on timeout; call unlock only after lock succeeded.
 bool bsp_lvgl_lock(int timeout_ms);
 void bsp_lvgl_unlock(void);

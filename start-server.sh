@@ -14,5 +14,5 @@ for candidate in "${candidates[@]}"; do
         exec "$candidate" "$app_root/tools/run_server.py" "$@"
     fi
 done
-echo '需要 Python 3.10+ / Python 3.10+ is required. See README.' >&2
+echo 'Python 3.10+ is required. See README.' >&2
 exit 1

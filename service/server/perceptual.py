@@ -1,23 +1,23 @@
-"""帧超出字节目标时，按感知代价逐步舍弃细节。
+"""When a frame exceeds the byte target, drop detail step by step by perceptual cost.
 
-输入为 ffmpeg 固定 3-3-2 索引，能放进目标时原样发送。放不下时，每个像素可沿用
-设备已显示的值或左邻像素的值（调色板颜色与参考像素足够接近时），使 deflate 看到
-更多重复；接近程度的阈值按帧搜索，起点为上一帧所需档位。
+Input is ffmpeg's fixed 3-3-2 indices, sent unchanged when it fits the target. When it does not,
+each pixel may reuse the value the device already shows or its left neighbor's value (when the
+palette color is close enough to the reference pixel), so deflate sees more repeats; the closeness threshold is searched per frame, starting from the level the previous frame needed.
 
-三种模式共用逐帧档位搜索：
+The three modes share a per-frame level search:
 
-- `perceptual`：沿用已显示值或左邻。
-- `perceptual_2d`：在此基础上再沿用上邻。
-- `mosaic`：每个 N x N 块取左上角像素的颜色。
+- `perceptual`: reuse the shown value or the left neighbor.
+- `perceptual_2d`: additionally reuse the upper neighbor.
+- `mosaic`: each N x N block takes the color of its top-left pixel.
 
-依赖 numpy，`AVAILABLE` 表示是否导入成功。
+Requires numpy; `AVAILABLE` says whether the import succeeded.
 """
 
 from __future__ import annotations
 
 try:
     import numpy as np
-except ImportError:  # 无 numpy 时服务端退回颜色阶梯
+except ImportError:  # without numpy the server falls back to the color ladder
     np = None
 
 from . import frames
@@ -26,18 +26,18 @@ AVAILABLE = np is not None
 
 WIDTH, HEIGHT = frames.WIDTH, frames.HEIGHT
 
-# 参考颜色与替代颜色允许的距离，取加权平方 RGB（绿权重最大，蓝最小）。
-# 档位从相邻调色板颜色的最小间距起步，更小则无可替换；0 档为参考本身。
+# Allowed distance between reference and substitute colors, as weighted squared RGB (green weighs most, blue least).
+# Levels start from the smallest gap between adjacent palette colors (anything smaller has nothing to substitute); level 0 is the reference itself.
 LEVELS = (0, 3900, 7800, 11700, 15600, 23400, 31200, 46800, 70000, 110000)
 
-# 各马赛克档位的块边长（像素）；0 档为参考本身。
+# Block edge length (pixels) for each mosaic level; level 0 is the reference itself.
 MOSAIC_BLOCKS = (1, 2, 3, 4, 5, 6, 10)
 
 MODES = ("perceptual", "perceptual_2d", "mosaic")
 
 if AVAILABLE:
-    # 与设备一致的调色板（红绿步长 36、蓝步长 85，见 frames.palette_bytes），
-    # 权重折进坐标，使距离可直接按欧氏距离计算。
+    # Same palette as the device (red/green step 36, blue step 85; see frames.palette_bytes),
+    # with the weights folded into the coordinates so distance is plain Euclidean distance.
     _ROOT_WEIGHT = np.sqrt(np.array([3.0, 6.0, 1.0], np.float32))
     _PALETTE_W = np.array([((i >> 5) * 36, ((i >> 2) & 7) * 36, (i & 3) * 85)
                            for i in range(256)], np.float32) * _ROOT_WEIGHT
@@ -46,10 +46,10 @@ if AVAILABLE:
 def _snap(reference: "np.ndarray", base: "np.ndarray", shown: "np.ndarray | None",
           held_distance: "np.ndarray | None", threshold: float,
           vertical: bool = False) -> "np.ndarray":
-    """把 `base` 中的像素换成距离在 `threshold` 内的更省字节的索引。
+    """Replace pixels in `base` with cheaper-to-encode indices within `threshold` distance.
 
-    顺序为：设备已显示的值；逐列取左邻；`vertical` 时再逐行取上邻。
-    邻居遍历必须顺序进行，像素可沿用刚沿用过邻居的像素。
+    Order: the value the device already shows; then the left neighbor per column; then, if `vertical`, the upper neighbor per row.
+    Neighbor traversal must be sequential, since a pixel may reuse a pixel that itself just reused a neighbor.
     """
     out = base.copy()
     if shown is not None:
@@ -73,7 +73,7 @@ def _snap(reference: "np.ndarray", base: "np.ndarray", shown: "np.ndarray | None
 
 
 def _mosaic(base: "np.ndarray", block: int) -> "np.ndarray":
-    """`base` 中每个 `block` x `block` 方块填成其左上角像素。"""
+    """Fill each `block` x `block` square of `base` with its top-left pixel."""
     small = base[::block, ::block]
     return np.repeat(np.repeat(small, block, axis=0), block, axis=1)[:HEIGHT, :WIDTH]
 
@@ -81,10 +81,9 @@ def _mosaic(base: "np.ndarray", block: int) -> "np.ndarray":
 def encode_within(raw: bytes, shown: bytes | None, tick: int, target: int,
                   hint: int = 0, min_diff: float = frames.DELTA_MAX_DIFF,
                   mode: str = "perceptual") -> tuple[list[bytes], bytes, int]:
-    """契约同 `frames.encode_within`，返回（待发条带，设备将显示的画面，档位）。
+    """Same contract as `frames.encode_within`; returns (stripes to send, picture the device will show, level).
 
-    先试 0 档（原帧）；放不下则从 `hint`（上一帧所需档位）起搜：放得下就再试低一档，
-    放不下就在更高档位间二分。`mode` 取自 `MODES`，决定档位如何变成画面。
+    Try level 0 (the original frame) first; if it does not fit, search from `hint` (the level the previous frame needed): if it fits, try one level lower, if not, bisect among higher levels. `mode` comes from `MODES` and decides how a level becomes a picture.
     """
     if len(raw) != frames.FRAME_PIXELS:
         raise ValueError(f"frame is {len(raw)} bytes, expected {frames.FRAME_PIXELS}")

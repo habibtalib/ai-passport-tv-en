@@ -1,13 +1,13 @@
-"""索引画面：帧的切条、压缩与打包。
+"""Indexed picture: frame striping, compression and packing.
 
-画面为 256 色调色板索引，每像素 1 字节，按条带独立 deflate 压缩。
-几何见 GEOMETRIES，默认 320x180、每条带 12 行、共 15 条带。
+The picture is 256-color palette indices, 1 byte per pixel, with each stripe deflate-compressed independently.
+For geometry see GEOMETRIES: default 320x180, 12 rows per stripe, 15 stripes.
 
-视频包载荷格式（长度为大端，单位为其后压缩数据的字节数）：
+Video packet payload format (lengths are big-endian, in bytes of the compressed data that follows):
 
-    [u8 首条带][u8 条带数][u16 长度 * 条带数][压缩条带]
+    [u8 first stripe][u8 stripe count][u16 length * stripe count][compressed stripes]
 
-长度为 0 的条带表示未变化，设备不重绘。
+A stripe of length 0 means unchanged; the device does not redraw it.
 """
 
 from __future__ import annotations
@@ -16,8 +16,9 @@ import os
 import struct
 import zlib
 
-# 画面几何：名称 -> (宽, 高, 每条带行数)。必须与固件编译时的几何一致，
-# 否则设备在 CONFIG 校验时拒绝会话。四项均为 15 条带；320x180 为 16:9 默认值，其余为 4:3。
+# Picture geometry: name -> (width, height, rows per stripe). Must match the geometry compiled into
+# the firmware, otherwise the device rejects the session at CONFIG validation. All four have 15
+# stripes; 320x180 is the 16:9 default, the rest are 4:3.
 GEOMETRIES = {"320x240": (320, 240, 16), "280x210": (280, 210, 14),
               "240x180": (240, 180, 12), "320x180": (320, 180, 12)}
 _NAME = os.environ.get("TV_GEOMETRY", "320x180")
@@ -29,29 +30,29 @@ STRIPES = HEIGHT // STRIPE_ROWS
 STRIPE_PIXELS = WIDTH * STRIPE_ROWS
 FRAME_PIXELS = WIDTH * HEIGHT
 
-# ffmpeg 输出 rgb8：固定 3-3-2 网格即调色板（见 LiveChannel.build_palette），
-# 每帧恰为 FRAME_PIXELS 字节，无调色板尾部。
+# ffmpeg outputs rgb8: the fixed 3-3-2 grid is the palette (see LiveChannel.build_palette),
+# each frame is exactly FRAME_PIXELS bytes, with no palette tail.
 TRAILER_BYTES = 0
 FRAME_BYTES = FRAME_PIXELS + TRAILER_BYTES
 
-# 视频包上限，必须等于固件 AV_VIDEO_MAX；超限会话被结束，不会被截断。
+# Video packet limit; must equal firmware AV_VIDEO_MAX. An oversize packet ends the session; it is not truncated.
 VIDEO_MAX = 22528
 
-# 打包目标，刻意低于 VIDEO_MAX：单包过大会使读取期间音频无人读取，
-# 见 CLAUDE.md 关键设计决策 3。
+# Packing target, deliberately below VIDEO_MAX: an oversize packet leaves audio unread while it is
+# read. See CLAUDE.md key design decision 3.
 PACKET_TARGET_BYTES = int(os.environ.get("TV_PACKET_TARGET", "12288"))
 
-# 必须等于固件 AV_PALETTE_ENTRIES。
+# Must equal firmware AV_PALETTE_ENTRIES.
 PALETTE_ENTRIES = 256
 
 _HEADER = struct.Struct(">BB")
 
-# deflate 级别，见 CLAUDE.md 关键设计决策 2。
+# deflate level; see CLAUDE.md key design decision 2.
 _COMPRESS_LEVEL = 6
 
 
 def compress_stripes(frame: bytes, send: list[bool] | None = None) -> list[bytes]:
-    """切条并逐条压缩；`send` 为 False 的条带输出空串（长度 0，设备不重绘）。"""
+    """Split into stripes and compress each; stripes with `send` False output an empty string (length 0, device does not redraw)."""
     if len(frame) != FRAME_PIXELS:
         raise ValueError(f"frame is {len(frame)} bytes, expected {FRAME_PIXELS}")
     return [
@@ -61,16 +62,17 @@ def compress_stripes(frame: bytes, send: list[bool] | None = None) -> list[bytes
     ]
 
 
-# 增量发送：只发相对设备已有画面有变化的条带。TV_DELTA=0 关闭。
-# 依赖固件接受零长度条带，旧固件遇到会结束会话。
-# 变化量按差异索引数衡量，不比对相等；差异占比不超过 DELTA_MAX_DIFF 的条带不发，
-# 其余按差异数从大到小竞争字节预算。
+# Incremental send: only stripes that changed relative to what the device already shows. TV_DELTA=0 disables it.
+# Relies on the firmware accepting zero-length stripes; older firmware ends the session on one.
+# Change is measured by the number of differing indices, not by equality; stripes whose differing
+# share is at most DELTA_MAX_DIFF are not sent, and the rest compete for the byte budget from
+# largest difference down.
 DELTA = os.environ.get("TV_DELTA", "1") != "0"
 DELTA_MAX_DIFF = float(os.environ.get("TV_DELTA_MAX_DIFF", "0.01"))
 
 
 class ByteBudget:
-    """画面字节率与帧率，及由此得到的单帧字节目标。"""
+    """Picture byte rate and frame rate, and the per-frame byte target derived from them."""
 
     def __init__(self, rate: float, fps: float):
         self.rate, self.fps = float(rate), float(fps)
@@ -86,7 +88,7 @@ class ByteBudget:
 
 
 def _ladder() -> list[bytes]:
-    """从粗到细排列的 3-3-2 索引映射表，[0] 为无损；每档把各颜色通道舍入到步长的倍数。"""
+    """3-3-2 index mapping tables ordered coarse to fine, [0] lossless; each level rounds every color channel to a multiple of the step."""
     def table(rg: int, b: int) -> bytes:
         def snap(v: int, top: int, step: int) -> int:
             return min(top, (v + step // 2) // step * step)
@@ -101,9 +103,9 @@ LADDER = _ladder()
 
 def encode_within(raw: bytes, shown: bytes | None, tick: int, target: int,
                   min_diff: float = DELTA_MAX_DIFF) -> tuple[list[bytes], bytes, int]:
-    """压缩 `raw` 使其不超过 `target` 字节，返回（待发条带，设备将显示的画面，档位）。
+    """Compress `raw` to at most `target` bytes; returns (stripes to send, picture the device will show, level).
 
-    先原样尝试，再逐档降质，取第一个放得下的档位；最粗仍放不下才按变化量丢条带。
+    Try as-is first, then lower quality level by level and take the first that fits; only if even the coarsest does not fit, drop stripes by amount of change.
     """
     chosen, drawn = [], raw
     for rung, table in enumerate(LADDER):
@@ -120,7 +122,7 @@ def _wire_size(chosen: list[bytes]) -> int:
 
 
 def differing_pixels(a: bytes, b: bytes) -> int:
-    """统计两帧不同的索引个数：异或后数零字节，只用标准库。"""
+    """Count differing indices between two frames: XOR then count zero bytes, standard library only."""
     x = int.from_bytes(a, "big") ^ int.from_bytes(b, "big")
     return len(a) - x.to_bytes(len(a), "big").count(0)
 
@@ -131,12 +133,13 @@ def _deflate(raw: bytes, at: int) -> bytes:
 
 def choose_stripes(raw: bytes, shown: bytes | None, tick: int, allowed: int,
                    min_diff: float = DELTA_MAX_DIFF) -> list[bytes]:
-    """在 `allowed` 字节内选出值得发送的压缩条带；未选中的条带为空串。
+    """Pick the compressed stripes worth sending within `allowed` bytes; unselected stripes are empty strings.
 
-    `shown` 为设备已收到的画面，None 表示首帧，全部发送。
-    按 `tick` 轮转强制刷新一条，不计入 `allowed`，用于修复设备丢失的条带。
-    其余条带按与 `shown` 的差异数从大到小发送，直到放不下为止；落选条带
-    无需记账，下一帧差异只增不减。
+    `shown` is the picture the device already has; None means the first frame, send everything.
+    One stripe is force-refreshed in rotation by `tick`, not counted against `allowed`, to repair
+    stripes the device lost. The rest are sent in order of differing count versus `shown`, largest
+    first, until they no longer fit; stripes left out need no bookkeeping, since the difference
+    can only grow by the next frame.
     """
     if len(raw) != FRAME_PIXELS:
         raise ValueError(f"frame is {len(raw)} bytes, expected {FRAME_PIXELS}")
@@ -167,7 +170,7 @@ def choose_stripes(raw: bytes, shown: bytes | None, tick: int, allowed: int,
 
 def fill_stripes(raw: bytes, shown: bytes | None, chosen: list[bytes],
                  allowed: int) -> list[bytes]:
-    """在 `chosen` 之外，用 `allowed` 的剩余字节补发被跳过且有差异的条带，差异大者优先。"""
+    """Beyond `chosen`, use the remaining `allowed` bytes to send skipped stripes that differ, largest difference first."""
     if shown is None:
         return chosen
     spent = _wire_size(chosen)
@@ -191,7 +194,7 @@ def fill_stripes(raw: bytes, shown: bytes | None, chosen: list[bytes],
 
 
 def apply_stripes(raw: bytes, shown: bytes | None, sent: list[bytes]) -> bytes:
-    """设备收到 `sent` 后显示的画面：`shown` 上覆盖 `raw` 中对应的条带。"""
+    """The picture the device shows after receiving `sent`: `shown` overlaid with the matching stripes from `raw`."""
     merged = bytearray(shown if shown is not None else raw)
     for at, stripe in enumerate(sent):
         if stripe:
@@ -201,7 +204,7 @@ def apply_stripes(raw: bytes, shown: bytes | None, sent: list[bytes]) -> bytes:
 
 
 def packet(first: int, compressed: list[bytes]) -> bytes:
-    """由连续的压缩条带构造一个载荷。"""
+    """Build one payload from consecutive compressed stripes."""
     if not compressed:
         raise ValueError("a packet carries at least one stripe")
     if first + len(compressed) > STRIPES:
@@ -214,21 +217,21 @@ def packet(first: int, compressed: list[bytes]) -> bytes:
 
 
 def frame_packets(frame: bytes) -> list[bytes]:
-    """整帧压缩并打包。"""
+    """Compress and pack a whole frame."""
     return pack_stripes(compress_stripes(frame))
 
 
 def pack_stripes(compressed: list[bytes]) -> list[bytes]:
-    """按字节预算把已压缩条带打包成多个载荷；空条带占 2 字节长度表。
+    """Pack compressed stripes into multiple payloads by byte budget; an empty stripe takes 2 bytes of the length table.
 
-    单条带超过预算时独自成包，超过 VIDEO_MAX 则抛错。
+    A single stripe over budget gets its own packet; over VIDEO_MAX it raises.
     """
     packets: list[bytes] = []
     run: list[bytes] = []
     run_bytes = 0
     at = 0
     for stripe in compressed:
-        # 长度表每条带增加 2 字节，预算先扣除包头与长度表。
+        # The length table adds 2 bytes per stripe; the budget first subtracts the header and length table.
         overhead = _HEADER.size + 2 * (len(run) + 1)
         if run and overhead + run_bytes + len(stripe) > PACKET_TARGET_BYTES:
             packets.append(packet(at, run))
@@ -247,7 +250,7 @@ def pack_stripes(compressed: list[bytes]) -> list[bytes]:
 
 
 def read_exactly(stream, size: int) -> bytes:
-    """从管道读 `size` 字节，管道结束时可能不足；管道单次读取可能返回短数据，故循环。"""
+    """Read `size` bytes from the pipe, possibly fewer at pipe end; a single pipe read may return short data, hence the loop."""
     data = bytearray()
     while len(data) < size:
         chunk = stream.read(size - len(data))
@@ -258,7 +261,7 @@ def read_exactly(stream, size: int) -> bytes:
 
 
 def read_frame(stream, stop) -> bytes | None:
-    """从 rawvideo 管道读一帧；流结束或只读到半帧时返回 None，半帧不补齐。"""
+    """Read one frame from the rawvideo pipe; returns None at end of stream or on a partial frame, which is not padded."""
     if stop.is_set():
         return None
     raw = read_exactly(stream, FRAME_PIXELS)
@@ -270,10 +273,10 @@ def read_frame(stream, stop) -> bytes | None:
     return raw
 
 
-# --- 载荷解包（测试与校验用） ---
+# --- Payload unpacking (for tests and verification) ---
 
 def unpack(payload: bytes) -> list[bytes]:
-    """把载荷拆成解压后的条带。"""
+    """Split a payload into decompressed stripes."""
     if len(payload) < _HEADER.size:
         raise ValueError("payload shorter than its own header")
     first, count = _HEADER.unpack_from(payload)
@@ -297,9 +300,9 @@ def unpack(payload: bytes) -> list[bytes]:
 
 
 def palette_bytes(rgb24: bytes) -> bytes:
-    """把 256 个 RGB 三元组转成设备要的大端 RGB565。
+    """Convert 256 RGB triples to the big-endian RGB565 the device wants.
 
-    ffmpeg 的 3-3-2 网格按 36 与 85 倍乘，量化到 RGB565 后与下面的移位结果一致。
+    ffmpeg's 3-3-2 grid scales by multiples of 36 and 85; after quantizing to RGB565 it matches the shift results below.
     """
     if len(rgb24) < PALETTE_ENTRIES * 3:
         raise ValueError("a palette is 256 RGB triples")
@@ -310,13 +313,13 @@ def palette_bytes(rgb24: bytes) -> bytes:
     return bytes(out)
 
 
-# --- 缩放与补边 ---
+# --- Scaling and padding ---
 
-# 取色样与出图共用同一条滤镜串，保证二者看到的是同一幅补边后的画面。
+# Color sampling and output share one filter chain, so both see the same padded picture.
 SCALE_MODES = ("bicubic", "lanczos", "bilinear", "area", "neighbor")
 SCALE = os.environ.get("TV_SCALE", "").strip() or "bicubic"
 if SCALE not in SCALE_MODES:
-    raise SystemExit(f"TV_SCALE={SCALE!r} 无效，可选值：{' / '.join(SCALE_MODES)}")
+    raise SystemExit(f"TV_SCALE={SCALE!r} is invalid; choices: {' / '.join(SCALE_MODES)}")
 SCALER_FLAGS = SCALE
 FIT = (f"scale=iw*sar:ih,setsar=1,"
        f"scale={WIDTH}:{HEIGHT}:force_original_aspect_ratio=decrease:flags={SCALER_FLAGS},"
@@ -327,13 +330,13 @@ DEFAULT_USER_AGENT = "AptvPlayer-UA"
 
 def input_options(url: str, user_agent: str = "", paced: bool = False,
                   loop: bool = False) -> list[str]:
-    """读取源的 ffmpeg 输入参数。
+    """ffmpeg input arguments for reading the source.
 
-    reconnect 选项仅网络源可用，本地文件会因未知选项而打不开。
+    The reconnect options work only for network sources; a local file fails to open on the unknown option.
     """
     options: list[str] = []
     if paced:
-        # -re 按原生速率读入，否则 HLS 窗口被一次解完，队列很快填满后断供。
+        # -re reads at native rate; otherwise the HLS window is decoded all at once, the queue fills quickly and supply stalls.
         options += ["-re", "-flags", "low_delay"]
     if url.startswith(("http://", "https://", "rtsp://", "rtmp://")):
         options += ["-reconnect", "1", "-reconnect_streamed", "1",

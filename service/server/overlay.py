@@ -1,7 +1,7 @@
-"""重连提示：黑白电视雪花背景及居中的文字。
+"""Reconnect notice: black-and-white TV snow background with centered text.
 
-用内置 5x7 点阵字体直接写入索引数组，不依赖图像库。索引对应固定 3-3-2 调色板
-（`media.default_palette`）：0 为黑，255 为白。
+Drawn with a built-in 5x7 dot-matrix font straight into the index array, with no imaging library. Indices map to the fixed 3-3-2 palette
+(`media.default_palette`): 0 is black, 255 is white.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def _text_columns(text: str) -> int:
 
 
 def reconnect_frame(base: bytes | None) -> bytes:
-    """生成黑白雪花，不修改上一帧；黑框确保提示文字清晰。"""
+    """Generate black-and-white snow without modifying the previous frame; a black box keeps the notice text legible."""
     if base is not None and len(base) != frames.FRAME_PIXELS:
         raise ValueError(f"frame is {len(base)} bytes, expected {frames.FRAME_PIXELS}")
     width, height = frames.WIDTH, frames.HEIGHT

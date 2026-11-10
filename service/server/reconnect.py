@@ -1,8 +1,8 @@
-"""上游断流时保持会话。
+"""Keep the session alive when the upstream stream drops.
 
-源停供时不断开设备：画面显示黑白电视雪花及 "RECONNECTING..."，同时持续补发静音以满足
-设备的音频看门狗。重启源在工作线程中进行，因为启动会阻塞数秒而静音不能中断。
-新源就绪后接续发送，断开期间的内容跳过，不回补。
+When the source stops, the device is not disconnected: the picture shows black-and-white TV snow and "RECONNECTING..." while silence is sent continuously to satisfy the
+device audio watchdog. The source is restarted on a worker thread, because startup blocks for several seconds and silence must not be interrupted.
+Once the new source is ready, sending resumes; content from the gap is skipped, not backfilled.
 """
 
 from __future__ import annotations
@@ -19,11 +19,11 @@ from .media import AUDIO_CHUNK_MS, AUDIO_LEAD_MS
 from .protocol import (AUDIO_BYTES, VIDEO_CONTINUES, Kind, Packet, json_bytes,
                        send_packet)
 
-# 会话停留在提示画面的最长时间，超过即结束。
+# Longest a session may stay on the notice picture; past this it ends.
 RECONNECT_TIMEOUT_S = float(os.environ.get("TV_RECONNECT_TIMEOUT_S", "60"))
-# 进程存活但这么久没有数据，视为卡住并替换。
+# If the process is alive but produces no data for this long, treat it as stuck and replace it.
 STALL_RESTART_S = 5.0
-# 单次替换必须在此时间内产出预缓冲完成的新源。
+# A single replacement must produce a prebuffered new source within this time.
 ATTEMPT_TIMEOUT_S = 20.0
 RETRY_DELAY_S = 2.0
 # Only while holding on source recovery; normal playback keeps its own cadence.
@@ -34,7 +34,7 @@ _SILENCE = bytes(AUDIO_BYTES)
 
 @dataclass
 class WireState:
-    """已发出的线上状态，使提示画面与静音能够接续。"""
+    """State already sent on the wire, so the notice picture and silence can continue from it."""
 
     seq: int
     audio_pts: int
@@ -50,12 +50,12 @@ def _close_quietly(channel: LiveChannel) -> None:
 
 
 def _close_background(channel: LiveChannel) -> None:
-    """关闭会等待解码器退出，放到后台线程以免中断静音。"""
+    """Closing waits for the decoder to exit; do it on a background thread so silence is not interrupted."""
     threading.Thread(target=_close_quietly, args=(channel,), daemon=True).start()
 
 
 class Restart:
-    """在工作线程中启动的替换频道。"""
+    """Replacement channel started on a worker thread."""
 
     def __init__(self, make):
         self.channel: LiveChannel = make()
@@ -93,7 +93,7 @@ def _tell_device(connection, session: int, reason: str) -> None:
 
 def _send_notice(server, connection, session: int, wire: WireState,
                  shown: bytes | None) -> bytes:
-    """发送提示画面，返回设备此刻显示的内容。"""
+    """Send the notice picture; return what the device is showing now."""
     raw = overlay.reconnect_frame(shown)
     chosen = frames.choose_stripes(raw, shown, 0, 1 << 20)
     parts = frames.pack_stripes(chosen)
@@ -112,7 +112,7 @@ def _send_notice(server, connection, session: int, wire: WireState,
 
 def _send_silence(server, connection, session: int, wire: WireState,
                   origin: float) -> None:
-    """为所有已到期的音频块补发静音，节奏与真实音频一致。"""
+    """Send silence for every audio block that is due, at the same cadence as real audio."""
     for _ in range(32):
         lookahead = (wire.audio_pts - AUDIO_LEAD_MS) - (time.monotonic() - origin) * 1000
         if lookahead > AUDIO_MAX_LOOKAHEAD_MS:
@@ -129,11 +129,11 @@ def _send_silence(server, connection, session: int, wire: WireState,
 
 def hold(server, connection, session: int, channel: LiveChannel, wire: WireState,
          origin: float, since: float, restart_reason: str = "") -> LiveChannel | None:
-    """让设备停留在提示画面，直到源重新有数据。
+    """Hold the device on the notice picture until the source has data again.
 
-    返回继续使用的频道：原频道已恢复或新启动的替换频道；设备离开时返回 None。
-    `wire` 原地更新。自 `since` 起超过 `RECONNECT_TIMEOUT_S` 抛 LiveError。
-    `restart_reason` 非空时立即替换 `channel`。
+    Returns the channel to keep using: the original channel once recovered, or a newly started replacement; None if the device left.
+    `wire` is updated in place. Raises LiveError once `RECONNECT_TIMEOUT_S` has passed since `since`.
+    A non-empty `restart_reason` replaces `channel` immediately.
     """
     deadline = since + RECONNECT_TIMEOUT_S
     restart: Restart | None = None

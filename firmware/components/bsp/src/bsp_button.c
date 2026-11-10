@@ -1,5 +1,5 @@
 // components/bsp/src/bsp_button.c
-// 移植自 trae_card/components/platform/platform_esp32/src/btn_iot_button.c
+// Ported from trae_card/components/platform/platform_esp32/src/btn_iot_button.c
 #include "bsp_button.h"
 #include "bsp_pins.h"
 #include "iot_button.h"
@@ -20,12 +20,12 @@ static bsp_btn_cb_t    s_cb;
 static void           *s_user;
 static volatile bool   s_ready;
 
-// ADC1 是 unit 级独占资源:iot_button 与 bsp_button_read_mv() 必须共用同一个 oneshot
-// 句柄。谁第二个调 adc_oneshot_new_unit() 谁就拿到 "adc1 is already in use"。
+// ADC1 is a unit-level exclusive resource: iot_button and bsp_button_read_mv() must share the same oneshot
+// handle. Whoever calls adc_oneshot_new_unit() second gets "adc1 is already in use".
 static adc_oneshot_unit_handle_t s_adc;
 static adc_cali_handle_t         s_cali;
 
-#define BSP_BTN_ATTEN  ADC_ATTEN_DB_12       // 量程约 0~3100mV,覆盖松开态
+#define BSP_BTN_ATTEN  ADC_ATTEN_DB_12              // Range about 0~3100mV, covers the idle state
 
 // Use the public button-driver interface, not button_adc's global registry:
 // button 4.2.0 leaves an occupied index behind when its core allocation fails.
@@ -71,7 +71,7 @@ static esp_err_t button_driver_delete(button_driver_t *driver) {
     return ESP_OK;
 }
 
-// 每个按键把"哪个键"随回调带回来。button 组件的回调签名固定,故用 usr_data 传索引。
+// Each button carries "which key" back with its callback. The button component's callback signature is fixed, so usr_data carries the index.
 static void on_event(void *arg, void *usr_data, bsp_btn_ev_t ev) {
     (void)arg;
     if (!s_ready || !s_cb) return;
@@ -84,10 +84,10 @@ static void cb_long  (void *a, void *u) { on_event(a, u, BSP_BTN_LONG);   }
 static void cb_release(void *a, void *u) { on_event(a, u, BSP_BTN_RELEASE); }
 static void cb_end(void *a, void *u) { on_event(a, u, BSP_BTN_END); }
 
-// 初始化中途失败时先停掉所有 button driver，再释放本文件持有的校准与 ADC unit。
-// button driver 仍在轮询时不能先删 ADC，否则 timer callback 会访问失效句柄。
-// 返回 ESP_OK 表示按键、校准与 ADC unit 都已完整回收；否则返回首个错误码，
-// 供 prepare_deep_sleep 判断能否安全切回数字输入。
+// If init fails midway, first stop all button drivers, then release the calibration and ADC unit held by this file.
+// The ADC must not be deleted while a button driver is still polling, otherwise the timer callback would touch a dead handle.
+// Returns ESP_OK when buttons, calibration and ADC unit are all fully reclaimed; otherwise returns the first error code,
+// for prepare_deep_sleep to decide whether it is safe to switch back to digital input.
 static esp_err_t button_cleanup(void) {
     esp_err_t first_err = ESP_OK;
     s_cb = NULL;
@@ -99,7 +99,7 @@ static esp_err_t button_cleanup(void) {
         if (!s_btn[i]) continue;
         esp_err_t e = iot_button_delete(s_btn[i]);
         if (e != ESP_OK) {
-            ESP_LOGE(TAG, "按键 %d 回滚失败: %s", i, esp_err_to_name(e));
+            ESP_LOGE(TAG, "Button %d rollback failed: %s", i, esp_err_to_name(e));
             if (first_err == ESP_OK) first_err = e;
             continue;
         }
@@ -117,7 +117,7 @@ static esp_err_t button_cleanup(void) {
     if (s_cali) {
         esp_err_t e = adc_cali_delete_scheme_curve_fitting(s_cali);
         if (e != ESP_OK) {
-            ESP_LOGE(TAG, "ADC 校准回滚失败: %s", esp_err_to_name(e));
+            ESP_LOGE(TAG, "ADC calibration rollback failed: %s", esp_err_to_name(e));
             if (first_err == ESP_OK) first_err = e;
         } else {
             s_cali = NULL;
@@ -126,7 +126,7 @@ static esp_err_t button_cleanup(void) {
     if (s_adc) {
         esp_err_t e = adc_oneshot_del_unit(s_adc);
         if (e != ESP_OK) {
-            ESP_LOGE(TAG, "ADC unit 回滚失败: %s", esp_err_to_name(e));
+            ESP_LOGE(TAG, "ADC unit rollback failed: %s", esp_err_to_name(e));
             if (first_err == ESP_OK) first_err = e;
         } else {
             s_adc = NULL;
@@ -152,12 +152,12 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
         return ESP_OK;
     }
     if (s_adc || s_cali) {
-        ESP_LOGE(TAG, "上次按键初始化回滚不完整，拒绝覆盖仍存活的 ADC 句柄");
+        ESP_LOGE(TAG, "Previous button init rollback incomplete, refusing to overwrite the still-live ADC handle");
         return ESP_ERR_INVALID_STATE;
     }
     for (int i = 0; i < BSP_BTN_COUNT; i++) {
         if (s_btn[i]) {
-            ESP_LOGE(TAG, "上次按键 %d 回滚不完整，拒绝重复分配资源", i);
+            ESP_LOGE(TAG, "Previous button %d rollback incomplete, refusing to allocate resources again", i);
             return ESP_ERR_INVALID_STATE;
         }
     }
@@ -168,7 +168,7 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
     const adc_oneshot_unit_init_cfg_t ucfg = { .unit_id = BSP_BTN_ADC_UNIT };
     esp_err_t ae = adc_oneshot_new_unit(&ucfg, &s_adc);
     if (ae != ESP_OK) {
-        ESP_LOGE(TAG, "ADC unit 创建失败 (%s)", esp_err_to_name(ae));
+        ESP_LOGE(TAG, "ADC unit creation failed (%s)", esp_err_to_name(ae));
         s_adc = NULL;
         (void)button_cleanup();
         return ae;
@@ -188,7 +188,7 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
     };
     ae = adc_cali_create_scheme_curve_fitting(&cal, &s_cali);
     if (ae != ESP_OK) {
-        ESP_LOGE(TAG, "ADC 校准创建失败: %s", esp_err_to_name(ae));
+        ESP_LOGE(TAG, "ADC calibration creation failed: %s", esp_err_to_name(ae));
         (void)button_cleanup();
         return ae; // No guessed mV: an unavailable reading is not an UP press.
     }
@@ -198,14 +198,14 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
             .base = { .get_key_level = button_level, .del = button_driver_delete },
             .index = (unsigned)i,
         };
-        // 判定门限由 BSP 显式下发(见 bsp_pins.h):组件 Kconfig 默认的长按 1500ms 偏迟钝。
+        // Detection thresholds are passed explicitly by the BSP (see bsp_pins.h): the component's Kconfig default long press of 1500ms is sluggish.
         const button_config_t bc = {
             .short_press_time = BSP_BTN_SHORT_PRESS_MS,
             .long_press_time  = BSP_BTN_LONG_PRESS_MS,
         };
         esp_err_t e = iot_button_create(&bc, &s_drivers[i].base, &s_btn[i]);
         if (e != ESP_OK || !s_btn[i]) {
-            ESP_LOGE(TAG, "按键 %d 创建失败 (%s) —— 检查 GPIO%d 的 ADC 配置与分压电阻",
+            ESP_LOGE(TAG, "Button %d creation failed (%s) - check the ADC config and divider resistor on GPIO%d",
                      i, esp_err_to_name(e), BSP_BTN_ADC_CHANNEL);
             e = e == ESP_OK ? ESP_FAIL : e;
             (void)button_cleanup();
@@ -214,7 +214,7 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
         void *idx = (void *)(intptr_t)i;
         e = register_callbacks(s_btn[i], idx);
         if (e != ESP_OK) {
-            ESP_LOGE(TAG, "按键 %d 回调注册失败: %s", i, esp_err_to_name(e));
+            ESP_LOGE(TAG, "Button %d callback registration failed: %s", i, esp_err_to_name(e));
             (void)button_cleanup();
             return e;
         }
@@ -222,14 +222,14 @@ esp_err_t bsp_button_init(bsp_btn_cb_t cb, void *user) {
 
     s_sample_valid = false;
     s_ready = true;
-    ESP_LOGI(TAG, "按键就绪:ADC1_CH%d 三键分压,短按 %dms 长按 %dms",
+    ESP_LOGI(TAG, "Buttons ready: ADC1_CH%d three-key divider, short press %dms long press %dms",
              BSP_BTN_ADC_CHANNEL, BSP_BTN_SHORT_PRESS_MS, BSP_BTN_LONG_PRESS_MS);
     return ESP_OK;
 }
 
 int bsp_button_read_mv(void) {
-    // 读的是 bsp_button_init() 建好、并与 iot_button 共用的那一路 ADC。
-    // 单次采样与组件的按键轮询互不干扰(oneshot 内部自带锁)。
+    // Reads the ADC channel that bsp_button_init() set up and shares with iot_button.
+    // A single sample does not interfere with the component's button polling (oneshot has its own lock).
     if (!s_adc || !s_cali) return -1;
 
     int raw = 0, mv = 0;
@@ -241,27 +241,27 @@ int bsp_button_read_mv(void) {
 esp_err_t bsp_button_prepare_deep_sleep(int *level) {
     if (level) *level = 0;
 
-    // ① 先停按键驱动,再放 ADC —— 反过来会让 timer 回调碰到已释放的句柄。
-    // 回滚不完整时(仍有存活的按键句柄或 ADC unit)不能切回数字输入:否则
-    // 既留下仍会轮询的驱动,又让调用方误以为可以安全入睡。
+    // (1) Stop the button driver first, then release the ADC - the reverse would let the timer callback touch a released handle.
+    // If the rollback is incomplete (a live button handle or ADC unit remains) it must not switch back to digital input: otherwise
+    // a still-polling driver is left behind and the caller wrongly thinks it is safe to sleep.
     esp_err_t err = button_cleanup();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "按键/ADC 回滚不完整,拒绝切回数字输入: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Button/ADC rollback incomplete, refusing to switch back to digital input: %s", esp_err_to_name(err));
         return err;
     }
 
-    // ② 按键脚交回普通数字输入 + 上拉(与板上 10k 外部上拉并联)。
+    // (2) Hand the button pin back to plain digital input + pull-up (in parallel with the board's 10k external pull-up).
     const gpio_num_t pin = (gpio_num_t)BSP_BTN_GPIO;
     err = gpio_set_direction(pin, GPIO_MODE_INPUT);
     if (err == ESP_OK) err = gpio_set_pull_mode(pin, GPIO_PULLUP_ONLY);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "按键脚切回数字输入失败: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to switch button pin back to digital input: %s", esp_err_to_name(err));
         return err;
     }
 
-    // 上拉建立需要一点时间,再回读。
+    // The pull-up needs a moment to settle; read back afterwards.
     vTaskDelay(pdMS_TO_TICKS(20));
     if (level) *level = gpio_get_level(pin);
-    ESP_LOGI(TAG, "按键已释放,深睡唤醒脚 GPIO%d 电平=%d", (int)pin, level ? *level : -1);
+    ESP_LOGI(TAG, "Buttons released, deep-sleep wake pin GPIO%d level=%d", (int)pin, level ? *level : -1);
     return ESP_OK;
 }

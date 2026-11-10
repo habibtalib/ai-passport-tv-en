@@ -1,8 +1,6 @@
-"""FAV1 音频包的 IMA ADPCM 编码。
+"""IMA ADPCM encoding for FAV1 audio packets.
 
-一个块为 4 字节头加每采样一个 4 位码，每对采样中较早的在低半字节。头部是第一个采样
-之前的编码器状态：大端 s16 预测值、u8 步长索引、一个零字节。解码端每块从头部重新开始，
-丢块不会影响下一块。与 WAV 布局不同，WAV 把采样 0 放在头部。
+A block is a 4-byte header plus one 4-bit code per sample; the earlier sample of each pair goes in the low nibble. The header is the encoder state before the first sample: big-endian s16 predictor, u8 step index, one zero byte. The decoder restarts from the header on every block, so a lost block does not affect the next. Unlike the WAV layout, which puts sample 0 in the header.
 """
 
 from __future__ import annotations
@@ -25,14 +23,14 @@ HEADER_BYTES = 4
 
 
 class Encoder:
-    """跨块保存预测值与步长索引。"""
+    """Keeps the predictor and step index across blocks."""
 
     def __init__(self, predictor: int = 0, index: int = 0):
         self.predictor = predictor
         self.index = index
 
     def encode(self, samples: Sequence[int]) -> bytes:
-        """把偶数个采样编码为一个块，头部在前。"""
+        """Encode an even number of samples into one block, header first."""
         if len(samples) % 2:
             raise ValueError("a block holds an even number of samples")
         header = struct.pack(">hBB", self.predictor, self.index, 0)
@@ -70,14 +68,14 @@ class Encoder:
         return header + packed
 
     def encode_pcm(self, pcm: bytes) -> bytes:
-        """编码小端有符号 16 位单声道 PCM。"""
+        """Encode little-endian signed 16-bit mono PCM."""
         if len(pcm) % 4:
             raise ValueError("PCM must hold an even number of 16-bit samples")
         return self.encode(struct.unpack(f"<{len(pcm) // 2}h", pcm))
 
 
 def decode(block: bytes, count: int) -> list[int]:
-    """解码一个块的前 `count` 个采样，作为编码器的对照实现。"""
+    """Decode the first `count` samples of a block; reference implementation for checking the encoder."""
     pred, index, zero = struct.unpack_from(">hBB", block)
     if zero or index > INDEX_MAX:
         raise ValueError("invalid block header")

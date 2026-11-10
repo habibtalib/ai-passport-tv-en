@@ -1,22 +1,22 @@
 // components/bsp/include/bsp_i2c.h
-// ES8311(0x18)与 CW2017(0x63)共用一条 I2C 总线。由本模块独立持有总线句柄,
-// 两个驱动都向它索取 —— 避免"谁先初始化谁建总线"的隐式顺序依赖。
+// ES8311 (0x18) and CW2017 (0x63) share one I2C bus. This module owns the bus handle alone,
+// and both drivers request it from here - avoiding the implicit "whoever inits first creates the bus" ordering dependency.
 #pragma once
 
 #include "esp_err.h"
 #include "driver/i2c_master.h"
 
-// 初始化共享总线。幂等:重复调用直接返回 ESP_OK,可在每个驱动的 init 里放心调。
+// Initialize the shared bus. Idempotent: repeat calls return ESP_OK immediately, so each driver's init can call it freely.
 esp_err_t bsp_i2c_init(void);
 
-// 取共享总线句柄。未初始化时返回 NULL。
+// Get the shared bus handle. Returns NULL if not initialized.
 i2c_master_bus_handle_t bsp_i2c_bus(void);
 
-// 扫描 0x08..0x77 并打印所有应答的设备。排查"芯片是不是没焊好/地址对不对"极有用。
-// 直接在正式总线上扫,不要另开临时总线 —— 原因见 bsp_i2c.c 中 bsp_i2c_scan() 的注释。
+// Scan 0x08..0x77 and print every device that ACKs. Very useful for checking whether a chip is soldered or the address is right.
+// Scans directly on the real bus; do not open a temporary bus - see the comment on bsp_i2c_scan() in bsp_i2c.c for why.
 esp_err_t bsp_i2c_scan(void);
 
-// deep sleep 专用：所有共享外设的最后一笔 I2C 事务完成后，将 SDA/SCL
-// 设为无上下拉的高阻输入。调用后禁止再访问总线，必须立即进入 deep sleep
-// 或重启。板上外部上拉电阻的静态功耗不受此接口控制。
+// Deep sleep only: after the last I2C transaction of every shared peripheral completes, set SDA/SCL
+// to floating inputs with no pull-up/pull-down. The bus must not be accessed afterwards; the caller must immediately enter deep sleep
+// or reboot. The static power draw of the external pull-up resistors on the board is not controlled by this interface.
 esp_err_t bsp_i2c_prepare_deep_sleep(void);

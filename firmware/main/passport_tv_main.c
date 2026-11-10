@@ -295,7 +295,7 @@ static bool configure(void) {
         {.uri="/connect",.method=HTTP_POST,.handler=connect_post},{.uri="/configure",.method=HTTP_POST,.handler=setup_post},
         {.uri="/finish",.method=HTTP_POST,.handler=finish_post}};
     for(unsigned i=0;i<sizeof routes/sizeof *routes;i++)if(httpd_register_uri_handler(http,&routes[i])!=ESP_OK)goto done;
-    screen("连接手机设置热点",name,"无需密码","浏览器打开 192.168.4.1");
+    screen("Join this hotspot on your phone",name,"No password needed","Open 192.168.4.1 in browser");
     atomic_store(&setup_info_requested,false);atomic_store(&setup_active,true);
     while(!atomic_load(&setup_saved)){
         if(atomic_exchange(&setup_info_requested,false)){printf("PTV_SETUP ssid=%s code=- url=http://192.168.4.1 auth=open\n",name);fflush(stdout);}
@@ -355,16 +355,16 @@ static bool connect_station(void) {
 }
 static void launcher(void *arg) {
     (void)arg;bool autoplay=true;
-    if(connection.ssid[0]){screen("正在连接已保存网络",NULL,NULL,NULL);(void)connect_station();}
+    if(connection.ssid[0]){screen("Connecting to saved network",NULL,NULL,NULL);(void)connect_station();}
     for(;;){
         if(!configured || atomic_exchange(&setup_requested,false)){
             configured=configure();autoplay=true;
-            if(!configured){screen("设置启动失败",NULL,"稍后重试",NULL);vTaskDelay(pdMS_TO_TICKS(3000));continue;}
+            if(!configured){screen("Setup failed to start",NULL,"Retrying shortly",NULL);vTaskDelay(pdMS_TO_TICKS(3000));continue;}
         }
         if(!passport_wifi_is_online()){
-            screen("正在连接 Wi-Fi",connection.ssid,NULL,"长按 OK 修改设置");
+            screen("Connecting to Wi-Fi",connection.ssid,NULL,"Hold OK to change settings");
             if(!connect_station()){
-                screen("Wi-Fi 连接未成功",NULL,"OK 重试 · 长按 OK 设置",NULL);
+                screen("Wi-Fi connection failed",NULL,"OK: retry | Hold OK: setup",NULL);
                 while(!passport_wifi_is_online() && !atomic_load(&setup_requested)){
                     bsp_btn_t retry;
                     if(xQueueReceive(keys,&retry,pdMS_TO_TICKS(100))==pdTRUE)break;
@@ -385,9 +385,9 @@ static void launcher(void *arg) {
                 .done=finished,.settings=settings,.connection_provider=managed?session_connection:NULL,
                 .session_task_stack_bytes=managed?10240:0};
             esp_err_t e=passport_tv_start(&c);
-            if(e!=ESP_OK){ESP_LOGE(TAG,"Player start failed: %s",esp_err_to_name(e));screen("播放启动失败",NULL,"OK 重试 · 长按 OK 设置",NULL);continue;}
+            if(e!=ESP_OK){ESP_LOGE(TAG,"Player start failed: %s",esp_err_to_name(e));screen("Playback failed to start",NULL,"OK: retry | Hold OK: setup",NULL);continue;}
             (void)ulTaskNotifyTake(pdTRUE,portMAX_DELAY);save_settings();xQueueReset(keys);
-            screen("电视已暂停",NULL,"按 OK 继续观看","长按 OK 连接设置");
+            screen("TV paused",NULL,"Press OK to resume","Hold OK for connection setup");
         }
     }
 }

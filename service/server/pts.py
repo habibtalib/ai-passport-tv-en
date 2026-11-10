@@ -1,12 +1,14 @@
-"""音视频各自的时间戳，取自产出它们的同一个解码进程。
+"""Separate audio and video timestamps, taken from the same decoder process that produces them.
 
-一个 ffmpeg 进程解码一次并同时输出两路载荷，`showinfo` 与 `ashowinfo` 在其滤镜图中
-逐条记录每个条目的 `pts_time`。时间戳与载荷出自同一次解码、处于同一时间轴，无需推算偏移，
-源中的断档也能被看到。
+One ffmpeg process decodes once and outputs both payloads; `showinfo` and `ashowinfo` in its
+filter graph record the `pts_time` of every entry. Timestamps and payloads come from the same
+decode on the same timeline, so no offset needs estimating and gaps in the source are visible.
 
-每个条目一行日志，按序号校验。`showinfo` 在写出前记录，读完载荷时对应行必已就绪。
-每行带 `n`，读取方与已读条目数比对；不符说明丢了行，此后所有时间戳都会错位一个条目，
-此时必须拒绝继续。`asetnsamples=n=640` 与强制单声道使一行日志恰好对应一个设备块。
+Each entry has one log line, checked by sequence number. `showinfo` logs before writing out, so
+the matching line is always ready once the payload has been read. Each line carries `n`, which the
+reader compares with the number of entries read; a mismatch means a line was lost and every later
+timestamp would be off by one entry, so the reader must refuse to continue. `asetnsamples=n=640`
+plus forced mono makes one log line correspond to exactly one device block.
 """
 
 from __future__ import annotations
@@ -15,19 +17,19 @@ import collections
 import re
 import threading
 
-# ffmpeg 为每个条目输出：
+# ffmpeg outputs for each entry:
 #   [Parsed_showinfo_3 @ 0x...] n:   0 pts:      0 pts_time:0       duration: ...
 #   [Parsed_ashowinfo_6 @ 0x...] n:0 pts:0 pts_time:0 fmt:s16 channels:1 ...
-# 两行字段形状相同，只能按滤镜名区分；`Parsed_ashowinfo` 不含 `Parsed_showinfo`。
+# The two lines have the same field shape and differ only by filter name; `Parsed_ashowinfo` does not contain `Parsed_showinfo`.
 VIDEO_FILTER = b"Parsed_showinfo"
 AUDIO_FILTER = b"Parsed_ashowinfo"
 _FIELDS = re.compile(rb"\] n:\s*(\d+)\s+pts:\s*(-?\d+)\s+pts_time:([-\d.eE+]+)")
 
 
 def parse(line: bytes) -> tuple[str, int, float] | None:
-    """返回（流类型，序号，时间）；不是目标行时返回 None。
+    """Return (stream kind, sequence number, time); None if the line is not a target line.
 
-    `showinfo` 还会输出同前缀但没有 `n:` 的行，要求完整字段序列以排除它们。
+    `showinfo` also prints lines with the same prefix but no `n:`; the full field sequence is required to exclude them.
     """
     if AUDIO_FILTER in line:
         kind = "audio"
@@ -42,11 +44,11 @@ def parse(line: bytes) -> tuple[str, int, float] | None:
 
 
 class Misaligned(RuntimeError):
-    """解码器给出的序号与已读条目对不上；此后的时间戳都会错位，只能拒绝而不修复。"""
+    """The decoder's sequence number does not match the entries read; all later timestamps would be misaligned, so it is rejected rather than repaired."""
 
 
 class Timestamps:
-    """按解码器产出顺序保存的时间戳；读完第 N 个条目即取第 N 个时间戳，并校验序号。"""
+    """Timestamps stored in decoder output order; after reading entry N, take the Nth timestamp and check the sequence number."""
 
     def __init__(self) -> None:
         self._condition = threading.Condition()
@@ -55,11 +57,11 @@ class Timestamps:
         self._expected = {"video": 0, "audio": 0}
         self.received = {"video": 0, "audio": 0}
         self._closed = False
-        # 保留解码器最近的日志行，会话异常结束时用于排查。
+        # Keep the decoder's most recent log lines for diagnosis when a session ends abnormally.
         self.tail: collections.deque[bytes] = collections.deque(maxlen=64)
 
     def note(self, line: bytes) -> None:
-        """记录一条日志；在 stderr 读取线程中调用。"""
+        """Record one log line; called from the stderr reader thread."""
         self.tail.append(line)
         found = parse(line)
         if found is None:
@@ -72,10 +74,11 @@ class Timestamps:
             self._condition.notify_all()
 
     def take(self, kind: str, timeout: float = 5.0) -> float | None:
-        """返回 `kind` 的下一个时间戳（秒）；超时或已关闭且无数据时返回 None。
+        """Return the next timestamp (seconds) for `kind`; None on timeout, or when closed with no data.
 
-        滤镜先于载荷写出日志，正常情况下读完载荷时本行已到，不会阻塞；
-        超时只用于解码器已停止的情况，避免源停供拖死服务端。
+        The filter logs before the payload is written, so normally the line has arrived by the time the
+        payload is read and this does not block; the timeout only covers a stopped decoder, so a
+        stalled source cannot hang the server.
         """
         with self._condition:
             queue = self._video if kind == "video" else self._audio
@@ -98,7 +101,7 @@ class Timestamps:
             return seconds
 
     def close(self) -> None:
-        """标记关闭并唤醒在 take() 中等待的线程。"""
+        """Mark closed and wake any thread waiting in take()."""
         with self._condition:
             self._closed = True
             self._condition.notify_all()
@@ -111,9 +114,9 @@ def _now() -> float:
 
 
 class Reader(threading.Thread):
-    """持续读取解码器 stderr 并写入 `Timestamps`。
+    """Continuously read the decoder's stderr and write it into `Timestamps`.
 
-    必须独立线程：没人读日志时 ffmpeg 会阻塞，表现与源停供无法区分。
+    Needs its own thread: ffmpeg blocks when nobody reads the log, which looks the same as a stalled source.
     """
 
     def __init__(self, stream, timestamps: Timestamps):

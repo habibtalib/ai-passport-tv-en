@@ -133,7 +133,7 @@ class Session(tv_server.AVServer):
     def session_channels(self):
         entries = super().session_channels()
         if self.replay_active:
-            entries = [dict(row, name="视频测试") if row['id'] == self.replay.channel_id
+            entries = [dict(row, name="Video Test") if row['id'] == self.replay.channel_id
                        else row for row in entries]
         return entries
 

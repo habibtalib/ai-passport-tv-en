@@ -26,23 +26,23 @@ static void prepare(ui_menu_overlay_t *c,const ui_menu_t *m) {
     c->builds++;
     char label[64];
     if (m->view==UI_VIEW_QUALITY) {
-        ui_text_prepare(&c->text[0],"清晰度",240);
+        ui_text_prepare(&c->text[0],"Quality",240);
         static const char *rates[]={"8 fps","15 fps","30 fps"};
         for (unsigned i=0;i<AV_QUALITY_COUNT;i++) {
             ui_text_prepare(&c->text[1+i*2],av_quality_name(i),76);
             ui_text_prepare(&c->text[2+i*2],rates[i],76);
         }
     } else if (m->view==UI_VIEW_CONTROLS) {
-        ui_text_prepare(&c->text[0],"电视",100);
-        ui_text_prepare(&c->text[2],"频道",160);
-        ui_text_prepare(&c->text[3],"清晰度",160);
+        ui_text_prepare(&c->text[0],"TV",100);
+        ui_text_prepare(&c->text[2],"Channels",160);
+        ui_text_prepare(&c->text[3],"Quality",160);
         snprintf(label,sizeof label,"%u",m->count);
         ui_text_prepare(&c->text[4],label,64);
         ui_text_prepare(&c->text[5],av_quality_name(m->quality),64);
     } else {
-        ui_text_prepare(&c->text[0],"频道",100);
+        ui_text_prepare(&c->text[0],"Channels",100);
         snprintf(label,sizeof(label),"%s",av_quality_name(m->quality));
-        ui_text_prepare(&c->text[1],m->quality_enabled?label:"直播",100);
+        ui_text_prepare(&c->text[1],m->quality_enabled?label:"Live",100);
         for (unsigned i=0;i<UI_MENU_OVERLAY_ROWS;i++) {
             unsigned index=m->scroll+i;
             label[0]=0;
@@ -54,8 +54,8 @@ static void prepare(ui_menu_overlay_t *c,const ui_menu_t *m) {
         }
         ui_text_prepare(&c->text[5],av_quality_name(m->quality),64);
     }
-    ui_text_prepare(&c->text[7],"上下选择  OK确认",180);
-    ui_text_prepare(&c->text[8],"长按返回",76);
+    ui_text_prepare(&c->text[7],"Up/Down  OK select",180);
+    ui_text_prepare(&c->text[8],"Hold: back",88);
 }
 static void card(ui_surface_t s,int x,int y,int w,int h,uint16_t color) {
     // Four-pixel stepped corners, with every fill clipped to this stripe.

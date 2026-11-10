@@ -1,1 +1,1 @@
-"""AI Passport TV 局域网媒体服务器：直播频道转码并经 FAV1 协议推流。"""
+"""AI Passport TV LAN media server: transcodes live channels and streams them over the FAV1 protocol."""

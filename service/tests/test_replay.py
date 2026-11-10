@@ -119,7 +119,7 @@ class FixedReplay(unittest.TestCase):
         original = public_server.Session(b'k'*40, threading.Event(), lambda _: None).session_channels()
         self.assertEqual([e['id'] for e in entries], [e['id'] for e in original])
         for row, old in zip(entries, original):
-            self.assertEqual(row, dict(old, name='视频测试') if row['id']==self.channel else old)
+            self.assertEqual(row, dict(old, name='Video Test') if row['id']==self.channel else old)
         other = self.session(self.replay(), '000000000001')
         self.assertEqual(other.session_channels(), original)
 

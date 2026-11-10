@@ -1,4 +1,4 @@
-"""发送时序常量与固定调色板。"""
+"""Send-timing constants and the fixed palette."""
 
 from __future__ import annotations
 
@@ -6,25 +6,28 @@ import os
 
 from . import frames
 
-# CONFIG 中声明的名义帧率，不是直播频道的实际发送帧率。设备只校验其合理（1..30），
-# 不按它调度：每帧自带时间戳，按音频时钟呈现。直播频道的帧率在启动时由 ffprobe 探测
-# （`LiveChannel.fps`）并在整个会话内保持；显式设置 `TV_FPS` 则覆盖探测、强制一个帧率。
+# Nominal frame rate declared in CONFIG; not the live channel's actual send rate. The device only
+# checks that it is sane (1..30) and does not schedule by it: every frame carries its own
+# timestamp and is presented on the audio clock. A live channel's frame rate is probed with ffprobe
+# at startup (`LiveChannel.fps`) and held for the whole session; setting `TV_FPS` explicitly
+# overrides the probe and forces one rate.
 FPS = int(os.environ.get("TV_FPS", "25"))
 DURATION_MS = 10000
 AUDIO_CHUNK_MS = 40
-# 音频发送提前量：发送端领先墙钟多少，决定稳态下设备音频队列的深度。
-# 见 CLAUDE.md 关键设计决策 5。可用环境变量调整。
+# Audio send lead: how far the sender runs ahead of the wall clock; sets the steady-state depth
+# of the device audio queue. See CLAUDE.md key design decision 5. Adjustable via env var.
 AUDIO_LEAD_MS = int(os.environ.get("TV_AUDIO_LEAD_MS", "320"))
-# 视频发送提前量，与音频独立设置：音频提前量决定设备队列深度，视频提前量只决定帧在自己
-# 的时隙之前多早放出；视频提前量过大会与音频挤在一起、丢帧增多。
+# Video send lead, set independently of audio: the audio lead sets device queue depth, while the
+# video lead only decides how early a frame is released before its own slot; too large a video
+# lead bunches up with audio and drops more frames.
 VIDEO_LEAD_MS = int(os.environ.get("TV_VIDEO_LEAD_MS", "200"))
 START_DELAY_MS = 200
 
 
 def default_palette() -> bytes:
-    """直播画面索引所指的固定 3-3-2 调色板。
+    """Fixed 3-3-2 palette that live-picture indices point to.
 
-    步长 36 与 85 同 ffmpeg 的 AV_PIX_FMT_RGB8，量化到 RGB565 后 256 项全部一致。
+    Steps of 36 and 85 match ffmpeg's AV_PIX_FMT_RGB8; after quantizing to RGB565 all 256 entries are identical.
     """
     return frames.palette_bytes(bytes(
         value
